@@ -15,6 +15,8 @@ import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.comments.Comment;
 import com.github.javaparser.ast.comments.LineComment;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.FileInputStream;
 import java.security.MessageDigest;
@@ -23,6 +25,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 public class MethodParser {
+    private static final Logger log = LoggerFactory.getLogger(MethodParser.class);
     protected HashMap<String, String> methodMd5Map;
     public HashMap<String, String> parseMethodsMd5(String classFile) throws Exception {
         methodMd5Map = new HashMap<>();
@@ -49,7 +52,7 @@ public class MethodParser {
         try {
          //   parser.parseMethodsMd5(file);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("MethodParser main failed", e);
         }
         String ll="/Users/didi/IdeaProjects/super-jacoco/clonecode/1582023571353/8b2c3257b672041b5dc272f19fdab45410301c5e/rollsroyce-biz/src/main/java/";
         System.out.println(ll.replace("/src/main/java/","/target/"));
@@ -93,7 +96,7 @@ public class MethodParser {
             }
             return result;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("getMD5Value failed", e);
         }
         return "";
     }

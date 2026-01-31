@@ -39,10 +39,8 @@ public class GetIPAddress {
                            }
                      }
                } catch (SocketException ex) {
-                 System.out.println("获取ip地址异常");
-                 ex.printStackTrace();
+                throw ex;
                }
-           System.out.println("IP:" + ip);
            return ip;
          }
     public static void main(String[] args) throws SocketException {

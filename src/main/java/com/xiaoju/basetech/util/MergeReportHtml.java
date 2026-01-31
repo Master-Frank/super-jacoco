@@ -4,6 +4,8 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -16,6 +18,8 @@ import java.util.ArrayList;
  * @time: 2019/12/12 8:41 AM
  */
 public class MergeReportHtml {
+    private static final Logger log = LoggerFactory.getLogger(MergeReportHtml.class);
+
     public static Integer[] mergeHtml(ArrayList<String> fileList, String destFile) {
         Integer[] result=new Integer[3];
         result[0]=0;
@@ -141,7 +145,7 @@ public class MergeReportHtml {
             result[1]=(array[5]-array[4])*100/array[5];
             result[2]=(array[10]-array[9])*100/array[10];
         } catch (IOException e) {
-            e.printStackTrace();
+            log.error("mergeHtml failed, destFile={}", destFile, e);
         }
         return result;
     }

@@ -9,7 +9,6 @@ package com.xiaoju.basetech.util;
 
 
 import com.xiaoju.basetech.entity.CoverageReportEntity;
-import jodd.io.FileUtil;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.lib.AnyObjectId;
@@ -23,6 +22,8 @@ import org.eclipse.jgit.treewalk.CanonicalTreeParser;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 
 import org.slf4j.Logger;
@@ -101,7 +102,18 @@ public class JDiffFiles {
                 coverageReport.setRequestStatus(Constants.JobStatus.SUCCESS.val());
                 coverageReport.setReportUrl(Constants.NO_DIFFCODE_REPORT);
                 // 删除下载的代码
-                FileUtil.cleanDir(new File(coverageReport.getNowLocalPath()).getParent());
+                try {
+                    Path now = Paths.get(coverageReport.getNowLocalPath()).toAbsolutePath().normalize();
+                    Path target = now.getParent();
+                    if (target != null) {
+                        Path root = target.getParent();
+                        if (root != null) {
+                            SafeFileOps.deleteRecursively(root, target);
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.error("uuid={}删除下载代码失败", coverageReport.getUuid(), e);
+                }
                 coverageReport.setErrMsg("没有增量代码");
             } else {
                 coverageReport.setRequestStatus(Constants.JobStatus.DIFF_METHOD_DONE.val());
@@ -243,9 +255,9 @@ public class JDiffFiles {
             walk.dispose();
             return TreeParser;
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("prepareTreeParser failed", e);
+            throw new IOException("prepareTreeParser failed", e);
         }
-        return null;
     }
 }
 

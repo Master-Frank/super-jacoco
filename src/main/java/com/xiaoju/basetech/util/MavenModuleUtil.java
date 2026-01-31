@@ -200,7 +200,7 @@ public class MavenModuleUtil {
                 moduleInfo.setFlag(true);
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("getModuleInfo failed, pomPath={}", pomPath, e);
         }
         return moduleInfo;
 
@@ -257,14 +257,16 @@ public class MavenModuleUtil {
                 }
             }
         } catch (FileNotFoundException e) {
-            e.printStackTrace();
+            log.error("pom not found, pomPath={}", pomPath, e);
         } catch (IOException e) {
-            e.printStackTrace();
+            log.error("read pom failed, pomPath={}", pomPath, e);
         } finally {
             try {
-                reader.close();
+                if (reader != null) {
+                    reader.close();
+                }
             } catch (IOException e) {
-                e.printStackTrace();
+                log.error("close reader failed, pomPath={}", pomPath, e);
             }
         }
         return validModuleList;

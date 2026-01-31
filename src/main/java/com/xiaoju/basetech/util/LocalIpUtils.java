@@ -9,7 +9,6 @@ public class LocalIpUtils {
             String localIp = GetIPAddress.getLinuxLocalIp();
             return "http://" + localIp + ":8899/";
         } catch (SocketException e) {
-            e.printStackTrace();
             throw new RuntimeException(e);
         }
 

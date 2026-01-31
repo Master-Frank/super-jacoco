@@ -1,14 +1,14 @@
 package com.xiaoju.basetech.util;
 
 import com.xiaoju.basetech.entity.CoverageReportEntity;
-import jodd.io.FileUtil;
+import com.xiaoju.basetech.config.CovPathProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
+import java.nio.file.Paths;
 
-import static com.xiaoju.basetech.util.Constants.CODE_ROOT;
 
 
 /**
@@ -23,7 +23,18 @@ public class CodeCloneExecutor {
     @Autowired
     private GitHandler gitHandler;
 
+    @Autowired
+    private CovPathProperties covPathProperties;
+
     public void cloneCode(CoverageReportEntity coverageReport) {
+        InputValidator.requireSafeUuid(coverageReport.getUuid());
+        InputValidator.requireSafeGitUrl(coverageReport.getGitUrl());
+        InputValidator.requireSafeVersion(coverageReport.getNowVersion(), "nowVersion");
+        if (!org.springframework.util.StringUtils.isEmpty(coverageReport.getBaseVersion())) {
+            InputValidator.requireSafeVersion(coverageReport.getBaseVersion(), "baseVersion");
+        }
+        InputValidator.requireSafeSubModule(coverageReport.getSubModule());
+
         if (coverageReport.getType() == Constants.ReportType.DIFF.val() && coverageReport.getNowVersion().equals(coverageReport.getBaseVersion())) {
             coverageReport.setErrMsg("两个commitId一样，无增量代码");
             coverageReport.setRequestStatus(Constants.JobStatus.NODIFF.val());
@@ -36,16 +47,17 @@ public class CodeCloneExecutor {
         coverageReport.setLogFile(logFile);
         try {
             String uuid = coverageReport.getUuid();
-            String nowLocalPath = CODE_ROOT + uuid + "/" + coverageReport.getNowVersion().replace("/", "_");
+            String codeRoot = covPathProperties.getCodeRoot();
+            String nowLocalPath = codeRoot + uuid + "/" + coverageReport.getNowVersion().replace("/", "_");
             coverageReport.setNowLocalPath(nowLocalPath);
-            if (new File(CODE_ROOT + uuid + "/").exists()) {
-                FileUtil.cleanDir(CODE_ROOT + uuid + "/");
+            if (new File(codeRoot + uuid + "/").exists()) {
+                SafeFileOps.deleteRecursively(covPathProperties.codeRootPath(), Paths.get(codeRoot + uuid + "/"));
             }
             String gitUrl = coverageReport.getGitUrl();
             log.info("uuid {}开始下载代码...", uuid);
             gitHandler.cloneRepository(gitUrl, nowLocalPath, coverageReport.getNowVersion());
             if (coverageReport.getType() == Constants.ReportType.DIFF.val()) {
-                String baseLocalPath = CODE_ROOT + uuid + "/" + coverageReport.getBaseVersion().replace("/", "_");
+                String baseLocalPath = codeRoot + uuid + "/" + coverageReport.getBaseVersion().replace("/", "_");
                 coverageReport.setBaseLocalPath(baseLocalPath);
                 gitHandler.cloneRepository(gitUrl, baseLocalPath, coverageReport.getBaseVersion());
             }

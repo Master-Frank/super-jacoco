@@ -1,12 +1,16 @@
 package com.xiaoju.basetech.util;
 
 import com.xiaoju.basetech.entity.CoverageReportEntity;
+import com.xiaoju.basetech.config.CovPathProperties;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeoutException;
-
-import static com.xiaoju.basetech.util.Constants.LOG_PATH;
 
 
 /**
@@ -17,12 +21,21 @@ import static com.xiaoju.basetech.util.Constants.LOG_PATH;
 @Component
 public class CodeCompilerExecutor {
 
+    @Autowired
+    private CovPathProperties covPathProperties;
+
     public void compileCode(CoverageReportEntity coverageReport) {
-        String logFile = coverageReport.getLogFile().replace(LocalIpUtils.getTomcatBaseUrl()+"logs/", LOG_PATH);
-        String[] compileCmd = new String[]{"cd " + coverageReport.getNowLocalPath() + "&&mvn clean compile " +
-                (StringUtils.isEmpty(coverageReport.getEnvType()) ? "" : "-P=" + coverageReport.getEnvType()) + ">>" + logFile};
+        String logFile = coverageReport.getLogFile().replace(LocalIpUtils.getTomcatBaseUrl() + "logs/", covPathProperties.getLogRoot());
+        Path logFilePath = Paths.get(logFile);
+        List<String> cmd = new ArrayList<>();
+        cmd.add("mvn");
+        if (!StringUtils.isEmpty(coverageReport.getEnvType())) {
+            cmd.add("-P" + coverageReport.getEnvType());
+        }
+        cmd.add("clean");
+        cmd.add("compile");
         try {
-            int exitCode = CmdExecutor.executeCmd(compileCmd, 600000L);
+            int exitCode = CmdExecutor.executeCmd(cmd, Paths.get(coverageReport.getNowLocalPath()), 600000L, logFilePath);
             if (exitCode != 0) {
                 coverageReport.setRequestStatus(Constants.JobStatus.COMPILE_FAIL.val());
                 coverageReport.setErrMsg("编译代码出错");

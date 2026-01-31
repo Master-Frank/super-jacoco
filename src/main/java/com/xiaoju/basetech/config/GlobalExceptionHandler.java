@@ -25,7 +25,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(Exception.class)
     HttpResult handleException(Exception e) {
-        log.error("{}", e);
+        log.error("unhandled exception", e);
         return HttpResult.build(ErrorCode.FAIL);
     }
 
@@ -37,7 +37,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(ResponseException.class)
     HttpResult handleResponseException(ResponseException e) {
-        log.error("{}", e);
+        log.error("response exception", e);
         return HttpResult.build(e.getErrorCode(), e.getMsg());
     }
 
@@ -49,8 +49,8 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     HttpResult handleValidateException(MethodArgumentNotValidException e) {
-        log.error("{}", e);
-        return HttpResult.build(ErrorCode.FAIL, e.getBindingResult().getAllErrors().get(0).getDefaultMessage());
+        log.error("validation exception", e);
+        return HttpResult.build(ErrorCode.BAD_REQUEST, e.getBindingResult().getAllErrors().get(0).getDefaultMessage());
     }
 
 }

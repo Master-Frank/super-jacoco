@@ -7,12 +7,17 @@ import java.io.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * @author: gaoweiwei_v
  * @time: 2019/7/31 10:54 AM
  */
 
 public class ReportHelper {
+    private static final Logger log = LoggerFactory.getLogger(ReportHelper.class);
+
     /**
      * @description:为多模块的工程添加一个子模块jacocomodule，dependency其他工程的原有子模块
      * @param projectPath
@@ -186,9 +191,9 @@ public class ReportHelper {
 
 
         } catch (FileNotFoundException e) {
-            e.printStackTrace();
+            log.error("addcoverageModule failed, projectPath={}", projectPath, e);
         } catch (IOException e) {
-            e.printStackTrace();
+            log.error("addcoverageModule failed, projectPath={}", projectPath, e);
         }finally {
             try {
                 if(writer!=null){
@@ -198,7 +203,7 @@ public class ReportHelper {
                     cwriter.close();
                 }
             } catch (IOException e) {
-                e.printStackTrace();
+                log.error("close writer failed, projectPath={}", projectPath, e);
             }
         }
         return false;

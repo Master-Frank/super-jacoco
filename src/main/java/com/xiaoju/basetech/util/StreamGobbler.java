@@ -61,7 +61,8 @@ public class StreamGobbler extends Thread {
                 try {
                     wait();
                 } catch (InterruptedException ignore) {
-                    ignore.printStackTrace();
+                    Thread.currentThread().interrupt();
+                    logger.warn("StreamGobbler interrupted while waiting", ignore);
                 }
             }
         }

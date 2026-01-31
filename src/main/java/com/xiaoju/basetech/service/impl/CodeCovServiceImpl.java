@@ -4,10 +4,10 @@ package com.xiaoju.basetech.service.impl;
 import com.google.common.base.Preconditions;
 import com.xiaoju.basetech.dao.CoverageReportDao;
 import com.xiaoju.basetech.dao.DeployInfoDao;
+import com.xiaoju.basetech.config.CovPathProperties;
 import com.xiaoju.basetech.entity.*;
 import com.xiaoju.basetech.service.CodeCovService;
 import com.xiaoju.basetech.util.*;
-import jodd.io.FileUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.beanutils.BeanUtils;
 import org.jacoco.core.tools.ExecFileLoader;
@@ -15,6 +15,7 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.select.Elements;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -23,8 +24,11 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executor;
 
 import static com.xiaoju.basetech.util.Constants.*;
 
@@ -37,8 +41,6 @@ import static com.xiaoju.basetech.util.Constants.*;
 @Slf4j
 @Service
 public class CodeCovServiceImpl implements CodeCovService {
-    private static final String JACOCO_PATH = System.getProperty("user.home") + "/org.jacoco.cli-1.0.2-SNAPSHOT-nodeps.jar";
-    private static final String COV_PATH = System.getProperty("user.home") + "/cover/";
     //普通命令超时时间是10分钟,600000L 143
     private static final Long CMD_TIMEOUT = 600000L;
 
@@ -46,6 +48,13 @@ public class CodeCovServiceImpl implements CodeCovService {
     private CoverageReportDao coverageReportDao;
     @Autowired
     private DeployInfoDao deployInfoDao;
+
+    @Autowired
+    private CovPathProperties covPathProperties;
+
+    @Autowired
+    @Qualifier("covJobExecutor")
+    private Executor covJobExecutor;
 
     @Autowired
     private DiffMethodsCalculator diffMethodsCalculator;
@@ -83,10 +92,9 @@ public class CodeCovServiceImpl implements CodeCovService {
         CoverageReportEntity coverageReport = new CoverageReportEntity();
         try {
             BeanUtils.copyProperties(coverageReport, unitCoverRequest);
-        } catch (IllegalAccessException e) {
-            e.printStackTrace();
-        } catch (InvocationTargetException e) {
-            e.printStackTrace();
+        } catch (IllegalAccessException | InvocationTargetException e) {
+            log.error("copy properties failed, uuid={}", unitCoverRequest.getUuid(), e);
+            throw new ResponseException(ErrorCode.FAIL, "参数处理失败");
         }
         coverageReport.setFrom(Constants.CoverageFrom.UNIT.val());
         coverageReport.setRequestStatus(Constants.JobStatus.INITIAL.val());
@@ -118,12 +126,17 @@ public class CodeCovServiceImpl implements CodeCovService {
 
         try {
             BeanUtils.copyProperties(result, coverageReport);
-            String logFile = coverageReport.getLogFile().replace(LOG_PATH, LocalIpUtils.getTomcatBaseUrl());
-            result.setLogFile(logFile);
-            if (coverageReport.getRequestStatus() < Constants.JobStatus.SUCCESS.val()) {
+            result.setLogFile(toPublicUrl(coverageReport.getLogFile()));
+            int status = coverageReport.getRequestStatus() == null ? -1 : coverageReport.getRequestStatus();
+            if (status == Constants.JobStatus.NODIFF.val()) {
+                result.setCoverStatus(1);
+                if (StringUtils.isEmpty(coverageReport.getErrMsg())) {
+                    result.setErrMsg("没有增量代码");
+                }
+            } else if (status < Constants.JobStatus.SUCCESS.val()) {
                 result.setCoverStatus(0);
-                result.setErrMsg("正在统计增量覆盖率..." + Constants.JobStatus.desc(coverageReport.getRequestStatus()));
-            } else if (coverageReport.getRequestStatus() > Constants.JobStatus.SUCCESS.val()) {
+                result.setErrMsg("正在统计增量覆盖率..." + Constants.JobStatus.desc(status));
+            } else if (status > Constants.JobStatus.SUCCESS.val()) {
                 result.setCoverStatus(-1);
                 result.setErrMsg("统计失败:" + coverageReport.getErrMsg());
                 result.setBranchCoverage(-1);
@@ -134,8 +147,29 @@ public class CodeCovServiceImpl implements CodeCovService {
             return result;
 
         } catch (Exception e) {
-            throw new ResponseException(e.getMessage());
+            log.error("getCoverResult failed, uuid={}", uuid, e);
+            throw new ResponseException(ErrorCode.FAIL, "查询失败");
         }
+    }
+
+    private String toPublicUrl(String pathOrUrl) {
+        if (StringUtils.isEmpty(pathOrUrl)) {
+            return "";
+        }
+        String trimmed = pathOrUrl.trim();
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            return trimmed;
+        }
+        try {
+            Path raw = Paths.get(trimmed).toAbsolutePath().normalize();
+            Path reportRoot = covPathProperties.reportRootPath();
+            if (raw.startsWith(reportRoot)) {
+                String rel = reportRoot.relativize(raw).toString().replace('\\', '/');
+                return LocalIpUtils.getTomcatBaseUrl() + rel;
+            }
+        } catch (Exception ignore) {
+        }
+        return trimmed;
     }
 
 
@@ -210,7 +244,7 @@ public class CodeCovServiceImpl implements CodeCovService {
         }
         try {
             coverageReport.setRequestStatus(Constants.JobStatus.SUCCESS.val());
-            FileUtil.cleanDir(new File(coverageReport.getNowLocalPath()).getParent());
+            safeDeleteCodeDir(coverageReport);
         } catch (IOException e) {
             log.error("uuid={}删除代码失败..", coverageReport.getUuid(), e);
             coverageReport.setRequestStatus(Constants.JobStatus.REMOVE_FILE_FAIL.val());
@@ -303,23 +337,32 @@ public class CodeCovServiceImpl implements CodeCovService {
             coverageReport.setRequestStatus(Constants.JobStatus.WAITING.val());
             coverageReportDao.insertCoverageReportById(coverageReport);
             deployInfoDao.insertDeployId(envCoverRequest.getUuid(), envCoverRequest.getAddress(), envCoverRequest.getPort());
-            new Thread(() -> {
-                cloneAndCompileCode(coverageReport);
-                if (coverageReport.getRequestStatus() != Constants.JobStatus.COMPILE_DONE.val()) {
-                    log.info("{}计算覆盖率具体步骤...编译失败uuid={}", Thread.currentThread().getName(), coverageReport.getUuid());
-                    return;
-                }
-                if (coverageReport.getType() == Constants.ReportType.DIFF.val()) {
-                    calculateDeployDiffMethods(coverageReport);
-                    if (coverageReport.getRequestStatus() != Constants.JobStatus.DIFF_METHOD_DONE.val()) {
-                        log.info("{}计算覆盖率具体步骤...计算增量代码失败，uuid={}", Thread.currentThread().getName(), coverageReport.getUuid());
+            covJobExecutor.execute(() -> {
+                try {
+                    cloneAndCompileCode(coverageReport);
+                    if (coverageReport.getRequestStatus() != Constants.JobStatus.COMPILE_DONE.val()) {
+                        log.info("{}计算覆盖率具体步骤...编译失败uuid={}", Thread.currentThread().getName(), coverageReport.getUuid());
                         return;
                     }
+                    if (coverageReport.getType() == Constants.ReportType.DIFF.val()) {
+                        calculateDeployDiffMethods(coverageReport);
+                        if (coverageReport.getRequestStatus() != Constants.JobStatus.DIFF_METHOD_DONE.val()) {
+                            log.info("{}计算覆盖率具体步骤...计算增量代码失败，uuid={}", Thread.currentThread().getName(), coverageReport.getUuid());
+                            return;
+                        }
+                    }
+                    coverageReport.setRequestStatus(Constants.JobStatus.WAITING_PULL_EXEC.val());
+                    coverageReportDao.updateCoverageReportByReport(coverageReport);
+                } catch (Exception e) {
+                    log.error("triggerEnvCov async failed, uuid={}", coverageReport.getUuid(), e);
+                    coverageReport.setRequestStatus(Constants.JobStatus.ENVREPORT_FAIL.val());
+                    coverageReport.setErrMsg("任务初始化失败");
+                    coverageReportDao.updateCoverageReportByReport(coverageReport);
                 }
-                calculateEnvCov(coverageReport);
-            }).start();
+            });
         } catch (Exception e) {
-            throw new ResponseException(e.getMessage());
+            log.error("triggerEnvCov failed, uuid={}", envCoverRequest == null ? null : envCoverRequest.getUuid(), e);
+            throw new ResponseException(ErrorCode.FAIL, "触发失败");
         }
 
     }
@@ -332,51 +375,59 @@ public class CodeCovServiceImpl implements CodeCovService {
      */
     @Override
     public void calculateEnvCov(CoverageReportEntity coverageReport) {
-        String logFile = coverageReport.getLogFile().replace(LocalIpUtils.getTomcatBaseUrl() + "logs/", LOG_PATH);
         String uuid = coverageReport.getUuid();
+        if (StringUtils.isEmpty(coverageReport.getLogFile())) {
+            coverageReport.setLogFile(LocalIpUtils.getTomcatBaseUrl() + "logs/" + uuid + ".log");
+        }
+        String logFile = coverageReport.getLogFile().replace(LocalIpUtils.getTomcatBaseUrl() + "logs/", covPathProperties.getLogRoot());
+        Path logFilePath = StringUtils.isEmpty(logFile) ? null : Paths.get(logFile);
+
+        coverageReport.setRequestStatus(Constants.JobStatus.REPORTGENERATING.val());
+        coverageReportDao.updateCoverageReportByReport(coverageReport);
+
         DeployInfoEntity deployInfoEntity = deployInfoDao.queryDeployId(uuid);
+        if (deployInfoEntity == null) {
+            coverageReport.setErrMsg("未找到部署信息");
+            coverageReport.setRequestStatus(Constants.JobStatus.ENVREPORT_FAIL.val());
+            coverageReportDao.updateCoverageReportByReport(coverageReport);
+            return;
+        }
         String reportName = "ManualDiffCoverage";
         if (coverageReport.getType() == 1) {
             reportName = "ManualCoverage";
         }
 
         try {
-            int exitCode = CmdExecutor.executeCmd(new String[]{"cd " + coverageReport.getNowLocalPath() + "&&java -jar " +
-                    JACOCO_PATH + " dump --address " + deployInfoEntity.getAddress() + " --port " +
-                    deployInfoEntity.getPort() + " --destfile ./jacoco.exec"}, CMD_TIMEOUT);
+            List<String> dumpCmd = new ArrayList<>();
+            dumpCmd.add("java");
+            dumpCmd.add("-jar");
+            dumpCmd.add(covPathProperties.getJacocoCliJar());
+            dumpCmd.add("dump");
+            dumpCmd.add("--address");
+            dumpCmd.add(deployInfoEntity.getAddress());
+            dumpCmd.add("--port");
+            dumpCmd.add(String.valueOf(deployInfoEntity.getPort()));
+            dumpCmd.add("--destfile");
+            dumpCmd.add("./jacoco.exec");
+            int exitCode = CmdExecutor.executeCmd(dumpCmd, Paths.get(coverageReport.getNowLocalPath()), CMD_TIMEOUT, logFilePath);
 
             if (exitCode == 0) {
-                CmdExecutor.executeCmd(new String[]{"rm -rf " + REPORT_PATH + coverageReport.getUuid()}, CMD_TIMEOUT);
-                String[] moduleList = deployInfoEntity.getChildModules().split(",");
-                StringBuilder builder = new StringBuilder("java -jar " + JACOCO_PATH + " report " + deployInfoEntity.getCodePath() + "/jacoco.exec ");
-                // 单模块的时候没有moduleList
-                if (moduleList.length == 0) {
-                    builder.append("--sourcefiles ./src/main/java/ ");
-                    builder.append("--classfiles ./target/classes/com/ ");
-                } else {
-                    // 多模块
-                    for (String module : moduleList) {
-                        builder.append("--sourcefiles ./" + module + "/src/main/java/ ");
-                        builder.append("--classfiles ./" + module + "/target/classes/com/ ");
-                    }
-                }
-                if (!StringUtils.isEmpty(coverageReport.getDiffMethod())) {
-                    builder.append("--diffFile " + coverageReport.getDiffMethod());
+                Path reportTargetDir = covPathProperties.reportRootPath().resolve(coverageReport.getUuid());
+                SafeFileOps.deleteRecursively(covPathProperties.reportRootPath(), reportTargetDir);
 
-                }
-                builder.append(" --html ./jacocoreport/ --encoding utf-8 --name " + reportName + ">>" + logFile);
-                int covExitCode = CmdExecutor.executeCmd(new String[]{"cd " + deployInfoEntity.getCodePath() + "&&" + builder.toString()}, CMD_TIMEOUT);
+                List<String> modules = splitModules(deployInfoEntity.getChildModules());
+                List<String> reportCmd = buildJacocoReportCmd("./jacoco.exec", modules, coverageReport.getDiffMethod(), reportName, "./jacocoreport/");
+                int covExitCode = CmdExecutor.executeCmd(reportCmd, Paths.get(deployInfoEntity.getCodePath()), CMD_TIMEOUT, logFilePath);
                 File reportFile = new File(deployInfoEntity.getCodePath() + "/jacocoreport/index.html");
+
                 if (covExitCode == 0 && reportFile.exists()) {
                     try {
-                        // 解析并获取覆盖率
                         Document doc = Jsoup.parse(reportFile.getAbsoluteFile(), "UTF-8", "");
                         Elements bars = doc.getElementById("coveragetable").getElementsByTag("tfoot").first().getElementsByClass("bar");
                         Elements lineCtr1 = doc.getElementById("coveragetable").getElementsByTag("tfoot").first().getElementsByClass("ctr1");
                         Elements lineCtr2 = doc.getElementById("coveragetable").getElementsByTag("tfoot").first().getElementsByClass("ctr2");
                         double lineCoverage = 100;
                         double branchCoverage = 100;
-                        // 以上这里初始化都换成了1
                         if (doc != null && bars != null) {
                             float lineNumerator = Float.valueOf(lineCtr1.get(1).text().replace(",", ""));
                             float lineDenominator = Float.valueOf(lineCtr2.get(3).text().replace(",", ""));
@@ -388,9 +439,8 @@ public class CodeCovServiceImpl implements CodeCovService {
                                 branchCoverage = (branchDenominator - branchNumerator) / branchDenominator * 100;
                             }
                         }
-                        // 复制report报告
-                        String[] cppCmd = new String[]{"cp -rf " + reportFile.getParent() + " " + REPORT_PATH + coverageReport.getUuid() + "/"};
-                        CmdExecutor.executeCmd(cppCmd, CMD_TIMEOUT);
+
+                        SafeFileOps.copyDirectory(covPathProperties.codeRootPath(), reportFile.getParentFile().toPath(), covPathProperties.reportRootPath(), reportTargetDir);
                         coverageReport.setReportUrl(LocalIpUtils.getTomcatBaseUrl() + coverageReport.getUuid() + "/index.html");
                         coverageReport.setRequestStatus(Constants.JobStatus.SUCCESS.val());
                         coverageReport.setLineCoverage(lineCoverage);
@@ -399,45 +449,50 @@ public class CodeCovServiceImpl implements CodeCovService {
                     } catch (Exception e) {
                         coverageReport.setRequestStatus(Constants.JobStatus.ENVREPORT_FAIL.val());
                         coverageReport.setErrMsg("解析jacoco报告失败");
-                        log.error("uuid={}", coverageReport.getUuid(), e.getMessage());
+                        log.error("uuid={}解析jacoco报告失败", coverageReport.getUuid(), e);
                     }
                 } else {
                     coverageReport.setRequestStatus(Constants.JobStatus.ENVREPORT_FAIL.val());
-                    // 可能不同子项目存在同一类名
-                    int littleExitCode = 0;
+                    if (modules.isEmpty()) {
+                        coverageReport.setErrMsg("生成jacoco报告失败");
+                        return;
+                    }
+                    boolean allOk = true;
                     ArrayList<String> childReportList = new ArrayList<>();
-                    for (String module : moduleList) {
-                        StringBuilder buildertmp = new StringBuilder("java -jar " + JACOCO_PATH + " report ./jacoco.exec");
-                        buildertmp.append(" --sourcefiles ./" + module + "/src/main/java/");
-                        buildertmp.append(" --classfiles ./" + module + "/target/classes/com/");
-                        if (!StringUtils.isEmpty(coverageReport.getDiffMethod())) {
-                            builder.append("--diffFile " + coverageReport.getDiffMethod());
-                        }
-                        buildertmp.append(" --html jacocoreport/" + module + " --encoding utf-8 --name " + reportName + ">>" + logFile);
-                        littleExitCode += CmdExecutor.executeCmd(new String[]{"cd " + deployInfoEntity.getCodePath() + "&&" + buildertmp.toString()}, CMD_TIMEOUT);
-                        if (littleExitCode == 0) {
+
+                    for (String module : modules) {
+                        List<String> moduleReportCmd = buildJacocoReportCmd("./jacoco.exec", java.util.Collections.singletonList(module), coverageReport.getDiffMethod(), reportName, "jacocoreport/" + module);
+                        int moduleExitCode = CmdExecutor.executeCmd(moduleReportCmd, Paths.get(deployInfoEntity.getCodePath()), CMD_TIMEOUT, logFilePath);
+                        if (moduleExitCode == 0) {
                             childReportList.add(deployInfoEntity.getCodePath() + "/jacocoreport/" + module + "/index.html");
+                        } else {
+                            allOk = false;
                         }
                     }
-                    if (littleExitCode == 0) {
-                        // 合并
-                        CmdExecutor.executeCmd(new String[]{"cd " + deployInfoEntity.getCodePath() + "&&cp -rf jacocoreport " + REPORT_PATH + coverageReport.getUuid() + "/"}, CMD_TIMEOUT);
-                        Integer[] result = MergeReportHtml.mergeHtml(childReportList, REPORT_PATH + coverageReport.getUuid() + "/index.html");
+
+                    if (allOk && !childReportList.isEmpty()) {
+                        SafeFileOps.copyDirectory(covPathProperties.codeRootPath(), Paths.get(deployInfoEntity.getCodePath()).resolve("jacocoreport"), covPathProperties.reportRootPath(), reportTargetDir);
+                        Integer[] result = MergeReportHtml.mergeHtml(childReportList, reportTargetDir.resolve("index.html").toString());
 
                         if (result[0] > 0) {
                             coverageReport.setReportUrl(LocalIpUtils.getTomcatBaseUrl() + coverageReport.getUuid() + "/index.html");
                             coverageReport.setRequestStatus(Constants.JobStatus.SUCCESS.val());
-                            FileUtil.cleanDir(new File(coverageReport.getNowLocalPath()).getParent());
-                            CmdExecutor.executeCmd(new String[]{"cp -r " + JACOCO_RESOURE_PATH + " " + REPORT_PATH + coverageReport.getUuid()}, CMD_TIMEOUT);
+
+                            safeDeleteCodeDir(coverageReport);
+
+                            Path resourceDirName = covPathProperties.jacocoResourceRootPath().getFileName();
+                            if (resourceDirName != null) {
+                                SafeFileOps.copyDirectory(covPathProperties.jacocoResourceRootPath(), covPathProperties.jacocoResourceRootPath(), covPathProperties.reportRootPath(), reportTargetDir.resolve(resourceDirName));
+                            }
+
                             coverageReport.setLineCoverage(Double.valueOf(result[2]));
                             coverageReport.setBranchCoverage(Double.valueOf(result[1]));
                             return;
                         } else {
                             coverageReport.setRequestStatus(Constants.JobStatus.ENVREPORT_FAIL.val());
-                            coverageReport.setErrMsg("生成jacoco报告失败 ");
+                            coverageReport.setErrMsg("生成jacoco报告失败");
                         }
                     } else {
-                        // 生成报告错误
                         coverageReport.setRequestStatus(Constants.JobStatus.ENVREPORT_FAIL.val());
                         coverageReport.setErrMsg("生成jacoco报告失败");
                     }
@@ -445,28 +500,94 @@ public class CodeCovServiceImpl implements CodeCovService {
             } else {
                 coverageReport.setErrMsg("获取jacoco.exec 文件失败");
                 coverageReport.setRequestStatus(Constants.JobStatus.ENVREPORT_FAIL.val());
-                log.error("uuid={}", coverageReport.getUuid(), coverageReport.getErrMsg());
-                FileUtil.cleanDir(new File(coverageReport.getNowLocalPath()).getParent());
+                log.error("uuid={}{}", coverageReport.getUuid(), coverageReport.getErrMsg());
+                safeDeleteCodeDir(coverageReport);
             }
         } catch (java.util.concurrent.TimeoutException e) {
-            log.error("uuid={}获取超时", coverageReport.getUuid());
+            coverageReport.setRequestStatus(Constants.JobStatus.TIMEOUT.val());
+            coverageReport.setErrMsg("获取jacoco.exec 文件超时");
+            log.error("uuid={}获取超时", coverageReport.getUuid(), e);
         } catch (Exception e) {
             coverageReport.setRequestStatus(Constants.JobStatus.ENVREPORT_FAIL.val());
             coverageReport.setErrMsg("获取jacoco.exec 文件发生未知错误");
             log.error("uuid={}获取jacoco.exec 文件发生未知错误", coverageReport.getUuid(), e);
-            log.error("uuid={}", coverageReport.getUuid(), coverageReport.getErrMsg());
         } finally {
             coverageReportDao.updateCoverageReportByReport(coverageReport);
         }
     }
 
+    private void safeDeleteCodeDir(CoverageReportEntity coverageReport) throws IOException {
+        Path now = Paths.get(coverageReport.getNowLocalPath()).toAbsolutePath().normalize();
+        Path target = now.getParent();
+        if (target == null) {
+            return;
+        }
+        SafeFileOps.deleteRecursively(covPathProperties.codeRootPath(), target);
+    }
+
+    private List<String> splitModules(String raw) {
+        List<String> out = new ArrayList<>();
+        if (StringUtils.isEmpty(raw)) {
+            return out;
+        }
+        for (String v : raw.split(",")) {
+            if (!StringUtils.isEmpty(v)) {
+                String trimmed = v.trim();
+                if (!StringUtils.isEmpty(trimmed)) {
+                    out.add(trimmed);
+                }
+            }
+        }
+        return out;
+    }
+
+    private List<String> buildJacocoReportCmd(String execFile, List<String> modules, String diffFile, String reportName, String htmlDir) {
+        List<String> cmd = new ArrayList<>();
+        cmd.add("java");
+        cmd.add("-jar");
+        cmd.add(covPathProperties.getJacocoCliJar());
+        cmd.add("report");
+        cmd.add(execFile);
+        if (modules == null || modules.isEmpty()) {
+            cmd.add("--sourcefiles");
+            cmd.add("./src/main/java/");
+            cmd.add("--classfiles");
+            cmd.add("./target/classes/com/");
+        } else {
+            for (String module : modules) {
+                cmd.add("--sourcefiles");
+                cmd.add("./" + module + "/src/main/java/");
+                cmd.add("--classfiles");
+                cmd.add("./" + module + "/target/classes/com/");
+            }
+        }
+        if (!StringUtils.isEmpty(diffFile)) {
+            cmd.add("--diffFile");
+            cmd.add(diffFile);
+        }
+        cmd.add("--html");
+        cmd.add(htmlDir);
+        cmd.add("--encoding");
+        cmd.add("utf-8");
+        cmd.add("--name");
+        cmd.add(reportName);
+        return cmd;
+    }
+
     @Override
     public CoverResult getLocalCoverResult(LocalHostRequestParam localHostRequestParam) {
-        //path 处理
-        localHostRequestParam.setBasePath(localHostRequestParam.getBasePath().endsWith("/") ? localHostRequestParam.getBasePath() : (localHostRequestParam.getBasePath() + "/"));
-        localHostRequestParam.setNowPath(localHostRequestParam.getNowPath().endsWith("/") ? localHostRequestParam.getNowPath() : (localHostRequestParam.getNowPath() + "/"));
+        InputValidator.requireSafeUuid(localHostRequestParam.getUuid());
+        InputValidator.requireSafeGitUrl(localHostRequestParam.getGitUrl());
+        InputValidator.requireSafeVersion(localHostRequestParam.getBaseVersion(), "baseVersion");
+        InputValidator.requireSafeVersion(localHostRequestParam.getNowVersion(), "nowVersion");
+        InputValidator.requireSafeSubModule(localHostRequestParam.getSubModule());
+
+        Path basePath = InputValidator.requirePathWithinRoot(localHostRequestParam.getBasePath(), covPathProperties.localCovRootPath(), "basePath");
+        Path nowPath = InputValidator.requirePathWithinRoot(localHostRequestParam.getNowPath(), covPathProperties.localCovRootPath(), "nowPath");
+        InputValidator.requirePathWithinRoot(localHostRequestParam.getClassFilePath(), covPathProperties.localCovRootPath(), "classFilePath");
+
         //1、计算增量代码
-        String diffFiles = diffMethodsCalculator.executeDiffMethodsForEnv(localHostRequestParam.getBasePath(), localHostRequestParam.getNowPath(), localHostRequestParam.getBaseVersion(), localHostRequestParam.getNowVersion());
+        String diffFiles = diffMethodsCalculator.executeDiffMethodsForEnv(basePath.toString(), nowPath.toString(), localHostRequestParam.getBaseVersion(), localHostRequestParam.getNowVersion());
         CoverResult result = new CoverResult();
         if (diffFiles == null) {
             result.setCoverStatus(-1);
@@ -479,6 +600,8 @@ public class CodeCovServiceImpl implements CodeCovService {
         if (StringUtils.isEmpty(localHostRequestParam.getAddress())) {
             localHostRequestParam.setAddress("127.0.0.1");
         }
+        localHostRequestParam.setBasePath(basePath.toString());
+        localHostRequestParam.setNowPath(nowPath.toString());
         CoverResult coverResult = pullExecFile(localHostRequestParam, diffFiles, localHostRequestParam.getSubModule());
         //3、tomcat整合
         //todo
@@ -490,37 +613,32 @@ public class CodeCovServiceImpl implements CodeCovService {
      */
     private CoverResult pullExecFile(LocalHostRequestParam localHostRequestParam, String diffFiles, String subModule) {
         String reportName = "ManualDiffCoverage";
-        localHostRequestParam.setClassFilePath(localHostRequestParam.getClassFilePath().endsWith("/") ? localHostRequestParam.getClassFilePath() : (localHostRequestParam.getClassFilePath() + "/"));
         CoverResult coverResult = new CoverResult();
         try {
-            int exitCode = CmdExecutor.executeCmd(new String[]{"cd " + localHostRequestParam.getNowPath() + "&&java -jar " +
-                    JACOCO_PATH + " dump --address " + localHostRequestParam.getAddress() + " --port " +
-                    localHostRequestParam.getPort() + " --destfile  ./jacoco.exec"}, CMD_TIMEOUT);
+            List<String> dumpCmd = new ArrayList<>();
+            dumpCmd.add("java");
+            dumpCmd.add("-jar");
+            dumpCmd.add(covPathProperties.getJacocoCliJar());
+            dumpCmd.add("dump");
+            dumpCmd.add("--address");
+            dumpCmd.add(localHostRequestParam.getAddress());
+            dumpCmd.add("--port");
+            dumpCmd.add(String.valueOf(localHostRequestParam.getPort()));
+            dumpCmd.add("--destfile");
+            dumpCmd.add("./jacoco.exec");
+            int exitCode = CmdExecutor.executeCmd(dumpCmd, Paths.get(localHostRequestParam.getNowPath()), CMD_TIMEOUT, null);
 
             if (exitCode == 0) {
                 //todo 删除原有报告
                 // CmdExecutor.executeCmd(new String[]{"rm -rf " + REPORT_PATH + coverageReport.getUuid()}, CMD_TIMEOUT);
 
-                StringBuilder builder = new StringBuilder("java -jar " + JACOCO_PATH + " report " + localHostRequestParam.getNowPath() + "jacoco.exec ");
-                // 单模块的时候没有moduleList
-                if (subModule.isEmpty()) {
-                    builder.append("--sourcefiles ./src/main/java/ ");
-                    builder.append("--classfiles ./target/classes/com/ ");
-                } else {
-                    // 多模块
-
-                    builder.append("--sourcefiles ./" + subModule + "/src/main/java/ ");
-                    builder.append("--classfiles ./" + subModule + "/target/classes/com/ ");
-
+                List<String> modules = new ArrayList<>();
+                if (!StringUtils.isEmpty(subModule)) {
+                    modules.add(subModule);
                 }
-                if (!StringUtils.isEmpty(diffFiles)) {
-                    builder.append("--diffFile " + diffFiles);
-
-                }
-                builder.append(" --html ./jacocoreport/ --encoding utf-8 --name " + reportName);
-                log.info("builder={}", builder);
-                int covExitCode = CmdExecutor.executeCmd(new String[]{"cd " + localHostRequestParam.getNowPath() + "&&" + builder.toString()}, CMD_TIMEOUT);
-                File reportFile = new File(localHostRequestParam.getNowPath() + "jacocoreport/index.html");
+                List<String> reportCmd = buildJacocoReportCmd("./jacoco.exec", modules, diffFiles, reportName, "./jacocoreport/");
+                int covExitCode = CmdExecutor.executeCmd(reportCmd, Paths.get(localHostRequestParam.getNowPath()), CMD_TIMEOUT, null);
+                File reportFile = Paths.get(localHostRequestParam.getNowPath()).resolve("jacocoreport").resolve("index.html").toFile();
 
                 if (covExitCode == 0 && reportFile.exists()) {
                     try {
@@ -550,7 +668,7 @@ public class CodeCovServiceImpl implements CodeCovService {
                         coverResult.setCoverStatus(200);
                         coverResult.setLineCoverage(lineCoverage);
                         coverResult.setBranchCoverage(branchCoverage);
-                        coverResult.setReportUrl(localHostRequestParam.getNowPath() + "jacocoreport/index.html");
+                        coverResult.setReportUrl(reportFile.getAbsolutePath());
                         return coverResult;
                         // todo 复制report报告
 
@@ -560,33 +678,33 @@ public class CodeCovServiceImpl implements CodeCovService {
                     }
                 } else {
                     // 可能不同子项目存在同一类名
-                    int littleExitCode = 0;
+                    if (StringUtils.isEmpty(subModule)) {
+                        coverResult.setCoverStatus(-1);
+                        coverResult.setErrMsg("拉取执行文件失败");
+                        return coverResult;
+                    }
                     ArrayList<String> childReportList = new ArrayList<>();
 
-                    StringBuilder buildertmp = new StringBuilder("java -jar " + JACOCO_PATH + " report ./jacoco.exec");
-                    buildertmp.append(" --sourcefiles ./" + subModule + "/src/main/java/");
-                    buildertmp.append(" --classfiles ./" + subModule + "/target/classes/com/");
-                    if (!StringUtils.isEmpty(diffFiles)) {
-                        builder.append("--diffFile " + diffFiles);
-                    }
-                    buildertmp.append(" --html jacocoreport/" + subModule + " --encoding utf-8 --name " + reportName);
-                    littleExitCode += CmdExecutor.executeCmd(new String[]{"cd " + localHostRequestParam.getNowPath() + "&&" + buildertmp.toString()}, CMD_TIMEOUT);
-                    if (littleExitCode == 0) {
-                        childReportList.add(localHostRequestParam.getNowPath() + "/jacocoreport/" + subModule + "/index.html");
+                    List<String> moduleReportCmd = buildJacocoReportCmd("./jacoco.exec", java.util.Collections.singletonList(subModule), diffFiles, reportName, "jacocoreport/" + subModule);
+                    int moduleExitCode = CmdExecutor.executeCmd(moduleReportCmd, Paths.get(localHostRequestParam.getNowPath()), CMD_TIMEOUT, null);
+                    if (moduleExitCode == 0) {
+                        childReportList.add(Paths.get(localHostRequestParam.getNowPath()).resolve("jacocoreport").resolve(subModule).resolve("index.html").toString());
                     }
 
-                    if (littleExitCode == 0) {
+                    if (moduleExitCode == 0) {
                         // 合并
                         //todo 报告地址
-                        CmdExecutor.executeCmd(new String[]{"cd " + localHostRequestParam.getNowPath() + "&&cp -rf jacocoreport " + COV_PATH + localHostRequestParam.getUuid() + "/"}, CMD_TIMEOUT);
-                        Integer[] result = MergeReportHtml.mergeHtml(childReportList, COV_PATH + localHostRequestParam.getUuid() + "/index.html");
+                        Path targetDir = covPathProperties.localCovRootPath().resolve(localHostRequestParam.getUuid());
+                        SafeFileOps.deleteRecursively(covPathProperties.localCovRootPath(), targetDir);
+                        SafeFileOps.copyDirectory(covPathProperties.localCovRootPath(), Paths.get(localHostRequestParam.getNowPath()).resolve("jacocoreport"), covPathProperties.localCovRootPath(), targetDir.resolve("jacocoreport"));
+                        Integer[] result = MergeReportHtml.mergeHtml(childReportList, targetDir.resolve("index.html").toString());
 
                         if (result[0] > 0) {
                             //todo 清理
                             coverResult.setCoverStatus(200);
                             coverResult.setLineCoverage(Double.valueOf(result[2]));
                             coverResult.setBranchCoverage(Double.valueOf(result[1]));
-                            coverResult.setReportUrl(COV_PATH + localHostRequestParam.getUuid() + "/jacocoreport/index.html");
+                            coverResult.setReportUrl(targetDir.resolve("index.html").toString());
                             return coverResult;
                         } else {
                             coverResult.setCoverStatus(-1);
@@ -607,11 +725,11 @@ public class CodeCovServiceImpl implements CodeCovService {
                 return coverResult;
             }
         } catch (java.util.concurrent.TimeoutException e) {
-            log.error("获取jacoco.exec 文件失败，uuid={}获取超时", localHostRequestParam.getUuid());
-            throw new ResponseException(e.getMessage());
+            log.error("获取jacoco.exec 文件失败，uuid={}获取超时", localHostRequestParam.getUuid(), e);
+            throw new ResponseException(ErrorCode.FAIL, "获取jacoco.exec 文件超时");
         } catch (Exception e) {
             log.error("uuid={}获取jacoco.exec 文件发生未知错误", localHostRequestParam.getUuid(), e);
-            throw new RuntimeException(e.getMessage());
+            throw new ResponseException(ErrorCode.FAIL, "拉取执行文件失败");
         }
     }
 

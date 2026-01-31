@@ -33,13 +33,14 @@
     <select id="queryCoverByStatus" parameterType="java.lang.Integer" resultMap="coverageReportEntity">
         SELECT * from diff_coverage_report
         <where>
-            <if test="#{triggerStatus} != null">
+            <if test="triggerStatus != null">
                 `request_status`=#{triggerStatus}
             </if>
+            <if test="from != null">
+                AND `from`=#{from}
+            </if>
         </where>
-        AND `from`=#{from}
-        ORDER BY `update_time`
-        asc
+        ORDER BY `update_time` asc
         limit #{num}
     </select>
 
@@ -77,13 +78,14 @@
         SET
         `request_status`=#{coverageReportEntity.requestStatus},
         `err_msg`=#{coverageReportEntity.errMsg},
-        `diffmethod`=#{coverageReportEntity.diffMethod},
+        `diffmethod`=#{coverageReportEntity.diffMethod}
         WHERE job_record_uuid=#{coverageReportEntity.uuid}
     </update>
     <update id="casUpdateByStatus">
         UPDATE diff_coverage_report
         SET
-        `request_status`=#{newStatus}
+        `request_status`=#{newStatus},
+        `update_time`=NOW()
         WHERE `request_status`=#{expectStatus}
         AND `job_record_uuid`=#{uuid}
         limit 1
@@ -102,8 +104,8 @@
         WHERE `update_time`&lt; #{expireTime}
         AND `request_status`&gt;0
         AND `request_status`&lt;200
+        AND `request_status`!=100
         AND `from`=1
-        limit 1
     </update>
 
 
@@ -124,14 +126,17 @@
     <update id="casUpdateStatusById">
         UPDATE diff_coverage_report
         SET
-        `request_status`=#{requestStatus}
+        `request_status`=#{requestStatus},
+        `update_time`=NOW()
         <where>
-            <if test="#{id} != null">
+            <if test="id != null">
                 id=#{id}
             </if>
-            and
-            <if test="#{expectedStatus} != null">
-                `request_status`=#{expectedStatus}
+            <if test="id == null">
+                1=0
+            </if>
+            <if test="expectedStatus != null">
+                AND `request_status`=#{expectedStatus}
             </if>
         </where>
     </update>
