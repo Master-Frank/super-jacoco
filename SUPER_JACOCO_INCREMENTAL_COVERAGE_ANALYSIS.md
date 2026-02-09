@@ -42,57 +42,82 @@ flowchart TD
     PUB --> DB2[(DB 更新: 状态/覆盖率/报告 URL/错误信息)]
 ```
 
-**泳道图（接口/后台/外部依赖）**
+**泳道图（总览：单元覆盖 + 环境覆盖）**
 ```mermaid
-flowchart LR
-    subgraph Caller[调用方]
-        U1[调用 /cov/** 触发或查询]
+flowchart TB
+    subgraph Phase1[阶段1: 任务触发]
+        direction LR
+        C1[调用方] -->|1. POST /cov/**| W1[Web层]
+        W1 -->|2. 鉴权/限流| W1
+        W1 -->|3. 创建任务| S1[服务层]
+        S1 -->|4. 入库| DB1[(MySQL)]
+        S1 -->|5. 返回UUID| C1
     end
 
-    subgraph Web[Web 层]
-        WAF[拦截链路: 鉴权/IP/并发]
-        CTRL[Controller]
+    subgraph Phase2[阶段2: 异步处理]
+        direction LR
+        S2[服务层] -->|6. clone| T1[JGit]
+        S2 -->|7. 写入| FS1[(工作目录)]
+        S2 -->|8. compile| T2[Maven]
+        S2 -->|9. 计算diff| T1
+        S2 -->|10. 更新状态| DB1
     end
 
-    subgraph Service[服务层]
-        S1[创建或更新任务记录]
-        S2[提交 covJobExecutor 异步任务]
-        S3[克隆代码并编译]
-        S4[计算增量方法 diff]
-        S5[生成覆盖率报告]
-        S6[解析覆盖率指标并合并报告]
+    subgraph Phase3[阶段3: 调度执行]
+        direction LR
+        J1[调度器] -->|11. 领取任务| DB1
+        J1 -->|12. dump| T3[JaCoCo]
+        J1 -->|13. report| T3
+        T3 -->|14. 写入报告| FS2[(报告目录)]
+        J1 -->|15. 更新结果| DB1
     end
 
-    subgraph Scheduler[调度]
-        J1[CodeCoverageScheduleJob 领取待处理任务]
-        J2[执行 calculateEnvCov 拉 exec 生成报告]
+    subgraph Phase4[阶段4: 结果查询]
+        direction LR
+        C2[调用方] -->|16. GET /cov/get*Result| W2[Web层]
+        W2 -->|17. 查询| S3[服务层]
+        S3 -->|18. 读取| DB1
+        S3 -->|19. 返回reportUrl| C2
     end
 
-    subgraph Tooling[外部工具]
-        T1[JGit]
-        T2[Maven]
-        T3[JaCoCo agent dump]
-        T4[JaCoCo CLI report]
-    end
+    Phase1 --> Phase2 --> Phase3 --> Phase4
+```
 
-    subgraph Storage[存储]
-        DB[(MySQL: 任务/部署信息)]
-        FS[(工作目录/报告目录)]
-    end
+**时序图（总览：单元覆盖 + 环境覆盖）**
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Caller as 调用方
+    participant Web as Web(Controller/WAF)
+    participant Svc as Service(CodeCovServiceImpl)
+    participant DB as MySQL
+    participant Git as JGit
+    participant Maven as Maven
+    participant Sch as Scheduler(Job)
+    participant Jacoco as JaCoCo(CLI/Agent)
+    participant FS as FS(工作/报告目录)
 
-    U1 --> WAF --> CTRL --> S1 --> DB
-    S1 --> S2
-    S2 --> S3 --> T1
-    S3 --> FS
-    S3 --> S4
-    S4 -->|单元覆盖| T2
-    S4 -->|环境覆盖| J1
-    J1 --> DB
-    J1 --> J2 --> T3 --> T4
-    T2 --> S5 --> FS
-    T4 --> S5 --> FS
-    S5 --> S6 --> FS
-    S6 --> S1
+    Caller->>Web: /cov/** 触发任务
+    Web->>Svc: 参数校验/进入服务
+    Svc->>DB: 创建任务记录/部署信息
+    Svc-->>Caller: 立即返回(已触发)
+
+    Svc->>Git: clone/checkout
+    Svc->>Maven: mvn clean compile
+    Svc->>Git: 计算 diffFile(可选)
+    Svc->>DB: 更新状态 WAITING_PULL_EXEC
+
+    Sch->>DB: 领取任务
+    Sch->>Jacoco: dump(拉取 jacoco.exec)
+    Sch->>Jacoco: report(生成 HTML)
+    Jacoco->>FS: 写入 jacocoreport
+    Sch->>FS: 归档到 reportRoot/<uuid>/
+    Sch->>DB: 写入 reportUrl/覆盖率/状态
+
+    Caller->>Web: /cov/get*Result?uuid=...
+    Web->>Svc: 查询结果
+    Svc->>DB: 读取任务状态与 reportUrl
+    Svc-->>Caller: coverStatus + reportUrl
 ```
 
 **关键模块**
@@ -145,6 +170,179 @@ flowchart TD
 - 报告生成逻辑（单元覆盖）：在代码克隆、增量方法计算和集成模块添加完成后，通过构建链路执行测试并生成覆盖率 HTML 报告；报告首先落在对应任务的工作目录下，随后被复制到统一的报告根目录中。
 - 报告生成逻辑（环境覆盖）：调度任务在发现需要环境覆盖的任务后，从目标服务拉取运行时执行轨迹文件，再结合差异方法配置生成覆盖率 HTML 报告；生成过程同样按模块组织，并在完成后复制到统一的报告根目录中。
 - 报告存储与访问：所有任务的覆盖率报告都会按任务 ID 归档在报告根目录下的独立子目录中，入口文件为 index.html；应用将报告根目录暴露为静态资源根目录，因此可以通过 HTTP 直接访问形如 `http://<host>:<port>/<uuid>/index.html` 的地址查看对应任务的覆盖率报告。
+
+**本地模式 vs 非本机路径模式（流程差异）**
+
+当前图中“单元覆盖 / 环境覆盖”是覆盖率来源的两种大类；而“本地模式 / 非本机路径模式”是环境覆盖里两种不同的接入方式：
+
+- 本地模式：`POST /cov/getLocalCoverResult`，调用方显式提供本机源码/产物路径（同步返回结果）。
+- 非本机路径模式：`POST /cov/triggerEnvCov` + `GET /cov/getEnvCoverResult`，服务端根据 gitUrl 拉代码并编译（异步任务 + 轮询）。
+
+两者在流程上有明显差异：
+
+- 是否需要 DB：本地模式不依赖任务入库；非本机路径模式依赖 MySQL 存储任务/部署信息与状态机。
+- 是否异步：本地模式同步计算并返回；非本机路径模式先触发后轮询，真正“拉 exec + 生成报告”由调度任务执行。
+- 代码来源：本地模式直接读调用方提供的路径；非本机路径模式由服务端 clone 到 `cov.paths.codeRoot` 并在该目录编译。
+
+**本地模式：流程图**
+```mermaid
+flowchart TD
+    A[调用方 POST /cov/getLocalCoverResult] --> B[校验 uuid/gitUrl/version/path]
+    B --> C[DiffMethodsCalculator: 计算 diffFile]
+    C --> D[jacoco dump: 拉取 jacoco.exec]
+    D --> E[jacoco report: 生成 HTML 报告]
+    E --> F[解析 HTML 指标]
+    F --> G[复制报告到 reportRoot/<uuid>/]
+    G --> H[返回 data.reportUrl = <baseUrl>/<uuid>/index.html]
+```
+
+**本地模式：泳道图**
+```mermaid
+flowchart TB
+    subgraph LocalPhase1[阶段1: 请求处理]
+        direction LR
+        LC1[调用方] -->|1. POST /cov/getLocalCoverResult| LW1[Web层]
+        LW1 -->|2. 转发| LS1[服务层]
+        LS1 -->|3. 参数/路径校验| LS1
+    end
+
+    subgraph LocalPhase2[阶段2: 计算与采集]
+        direction LR
+        LS2[服务层] -->|4. 计算diffFile| LS2
+        LS2 -->|5. dump| LT1[JaCoCo]
+        LT1 -->|6. 生成exec| LS2
+    end
+
+    subgraph LocalPhase3[阶段3: 报告生成]
+        direction LR
+        LS3[服务层] -->|7. report| LT2[JaCoCo]
+        LT2 -->|8. 写入HTML| LFS[(报告目录)]
+        LS3 -->|9. 解析指标| LS3
+        LS3 -->|10. 复制归档| LFS
+    end
+
+    subgraph LocalPhase4[阶段4: 返回结果]
+        direction LR
+        LS4[服务层] -->|11. 返回reportUrl| LC2[调用方]
+        LC2 -->|12. 访问报告| LFS
+    end
+
+    LocalPhase1 --> LocalPhase2 --> LocalPhase3 --> LocalPhase4
+```
+
+**本地模式：时序图**
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Caller as 调用方
+    participant Web as Web(Controller)
+    participant Svc as Service(getLocalCoverResult)
+    participant Jacoco as JaCoCo(CLI/Agent)
+    participant FS as FS(nowPath/reportRoot)
+
+    Caller->>Web: POST /cov/getLocalCoverResult
+    Web->>Svc: 入参/路径校验
+    Svc->>Svc: 计算 diffFile
+    Svc->>Jacoco: dump(address,port)->jacoco.exec
+    Svc->>Jacoco: report(exec,diffFile)->HTML
+    Jacoco->>FS: 写入 nowPath/jacocoreport
+    Svc->>FS: 归档到 reportRoot/<uuid>/
+    Svc-->>Caller: data.reportUrl=<baseUrl>/<uuid>/index.html
+```
+
+**非本机路径模式：流程图**
+```mermaid
+flowchart TD
+    A[调用方 POST /cov/triggerEnvCov] --> B[创建任务记录/部署信息入库]
+    B --> C[covJobExecutor 异步: clone + compile]
+    C --> D[可选: 计算 diffFile]
+    D --> E[更新状态 WAITING_PULL_EXEC]
+    E --> F[调度领取任务]
+    F --> G[jacoco dump: 拉取 exec]
+    G --> H[jacoco report: 生成 HTML]
+    H --> I[解析/合并 + 复制到 reportRoot/<uuid>/]
+    I --> J[更新 DB: reportUrl/覆盖率/状态]
+    J --> K[调用方轮询 GET /cov/getEnvCoverResult]
+    K --> L[返回 data.reportUrl]
+```
+
+**非本机路径模式：泳道图**
+```mermaid
+flowchart TB
+    subgraph EnvPhase1[阶段1: 任务触发]
+        direction LR
+        EC1[调用方] -->|1. POST /cov/triggerEnvCov| EW1[Web层]
+        EW1 -->|2. 鉴权/限流| EW1
+        EW1 -->|3. 创建任务| ES1[服务层]
+        ES1 -->|4. 入库| EDB[(MySQL)]
+        ES1 -->|5. 返回success| EC1
+    end
+
+    subgraph EnvPhase2[阶段2: 异步准备]
+        direction LR
+        ES2[服务层] -->|6. clone| ET1[JGit]
+        ES2 -->|7. 写入| EFS[(工作目录)]
+        ES2 -->|8. compile| ET2[Maven]
+        ES2 -->|9. 计算diff| ET1
+        ES2 -->|10. 更新状态| EDB
+    end
+
+    subgraph EnvPhase3[阶段3: 调度执行]
+        direction LR
+        EJ1[调度器] -->|11. 领取任务| EDB
+        EJ1 -->|12. dump| ET3[JaCoCo]
+        EJ1 -->|13. report| ET3
+        ET3 -->|14. 写入报告| EFS2[(报告目录)]
+        EJ1 -->|15. 更新结果| EDB
+    end
+
+    subgraph EnvPhase4[阶段4: 结果查询]
+        direction LR
+        EC2[调用方] -->|16. GET /cov/getEnvCoverResult| EW2[Web层]
+        EW2 -->|17. 查询| ES3[服务层]
+        ES3 -->|18. 读取| EDB
+        ES3 -->|19. 返回reportUrl| EC2
+    end
+
+    EnvPhase1 --> EnvPhase2 --> EnvPhase3 --> EnvPhase4
+```
+
+**非本机路径模式：时序图**
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Caller as 调用方
+    participant Web as Web(Controller/WAF)
+    participant Svc as Service(triggerEnvCov/getCoverResult)
+    participant DB as MySQL
+    participant Git as JGit
+    participant Maven as Maven
+    participant Sch as Scheduler(Job)
+    participant Jacoco as JaCoCo(CLI/Agent)
+    participant FS as FS(codeRoot/reportRoot)
+
+    Caller->>Web: POST /cov/triggerEnvCov
+    Web->>Svc: 触发环境覆盖
+    Svc->>DB: insert 任务/部署信息
+    Svc-->>Caller: 200 success
+
+    Svc->>Git: clone/checkout
+    Svc->>Maven: mvn clean compile
+    Svc->>Svc: 计算 diffFile(可选)
+    Svc->>DB: update WAITING_PULL_EXEC
+
+    Sch->>DB: 领取 WAITING_PULL_EXEC
+    Sch->>Jacoco: dump -> jacoco.exec
+    Sch->>Jacoco: report -> HTML
+    Jacoco->>FS: 写入 jacocoreport
+    Sch->>FS: 归档到 reportRoot/<uuid>/
+    Sch->>DB: 写入 reportUrl/覆盖率/状态
+
+    Caller->>Web: GET /cov/getEnvCoverResult?uuid=...
+    Web->>Svc: 查询结果
+    Svc->>DB: select
+    Svc-->>Caller: coverStatus + reportUrl + logFile
+```
 
 **两种模式对比**
 - 单元覆盖：

@@ -7,8 +7,10 @@ package com.xiaoju.basetech.util;
  */
 
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.CloneCommand;
 
 import java.io.File;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -21,6 +23,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.nio.file.Paths;
 
@@ -35,15 +38,38 @@ public class GitHandler {
     private  String password;
 
     public Git cloneRepository(String gitUrl, String codePath, String commitId) throws GitAPIException {
-        Git git = Git.cloneRepository()
+        CloneCommand cloneCommand = Git.cloneRepository()
                 .setURI(gitUrl)
-                .setCredentialsProvider(new UsernamePasswordCredentialsProvider(username, password))
                 .setDirectory(new File(codePath))
-                .setBranch(commitId)
-                .call();
-        // 切换到指定commitId
-        checkoutBranch(git, commitId);
+                .setCloneAllBranches(true);
+
+        if (shouldUseCredentialsProvider(gitUrl) && !StringUtils.isEmpty(username) && !StringUtils.isEmpty(password)) {
+            cloneCommand.setCredentialsProvider(new UsernamePasswordCredentialsProvider(username, password));
+        }
+
+        Git git = cloneCommand.call();
+        if (!StringUtils.isEmpty(commitId)) {
+            checkoutBranch(git, commitId);
+        }
         return git;
+    }
+
+    private static boolean shouldUseCredentialsProvider(String gitUrl) {
+        if (StringUtils.isEmpty(gitUrl)) {
+            return false;
+        }
+        if (gitUrl.startsWith("git@")) {
+            return false;
+        }
+        try {
+            URI uri = URI.create(gitUrl);
+            if (uri.getScheme() == null) {
+                return false;
+            }
+            return uri.getScheme().equalsIgnoreCase("http") || uri.getScheme().equalsIgnoreCase("https");
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private static Ref checkoutBranch(Git git, String branch) {

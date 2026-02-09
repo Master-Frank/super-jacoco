@@ -29,12 +29,20 @@ public class UnitTester {
     @Autowired
     private CovPathProperties covPathProperties;
 
+    private static String mavenCommand() {
+        String os = System.getProperty("os.name");
+        if (os != null && os.toLowerCase().contains("win")) {
+            return "mvn.cmd";
+        }
+        return "mvn";
+    }
+
     public void executeUnitTest(CoverageReportEntity coverageReport) {
         long startTime = System.currentTimeMillis();
         String logFile = coverageReport.getLogFile().replace(LocalIpUtils.getTomcatBaseUrl() + "logs/", covPathProperties.getLogRoot());
         Path logFilePath = Paths.get(logFile);
         List<String> cmd = new ArrayList<>();
-        cmd.add("mvn");
+        cmd.add(mavenCommand());
         if (!StringUtils.isEmpty(coverageReport.getEnvType())) {
             cmd.add("-P" + coverageReport.getEnvType());
         }

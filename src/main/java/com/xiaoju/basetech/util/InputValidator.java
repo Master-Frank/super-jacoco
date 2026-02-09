@@ -66,6 +66,14 @@ public class InputValidator {
             throw new ResponseException(ErrorCode.BAD_REQUEST, "gitUrl不合法");
         }
 
+        if (gitUrl.matches("^[A-Za-z]:[\\\\/].*") || gitUrl.startsWith("\\\\")) {
+            Path p = Paths.get(gitUrl).toAbsolutePath().normalize();
+            if (!p.isAbsolute()) {
+                throw new ResponseException(ErrorCode.BAD_REQUEST, "gitUrl不合法");
+            }
+            return;
+        }
+
         if (gitUrl.startsWith("git@")) {
             if (!gitUrl.matches("git@[A-Za-z0-9._-]+:[A-Za-z0-9._/-]+(\\.git)?")) {
                 throw new ResponseException(ErrorCode.BAD_REQUEST, "gitUrl不合法");
@@ -79,7 +87,7 @@ public class InputValidator {
             if (scheme == null) {
                 throw new ResponseException(ErrorCode.BAD_REQUEST, "gitUrl不合法");
             }
-            if (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https") && !scheme.equalsIgnoreCase("ssh")) {
+            if (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https") && !scheme.equalsIgnoreCase("ssh") && !scheme.equalsIgnoreCase("file")) {
                 throw new ResponseException(ErrorCode.BAD_REQUEST, "gitUrl不合法");
             }
         } catch (IllegalArgumentException e) {

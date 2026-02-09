@@ -5,12 +5,19 @@ import java.net.SocketException;
 public class LocalIpUtils {
 
     public static String getTomcatBaseUrl() {
-        try {
-            String localIp = GetIPAddress.getLinuxLocalIp();
-            return "http://" + localIp + ":8899/";
-        } catch (SocketException e) {
-            throw new RuntimeException(e);
+        String os = System.getProperty("os.name");
+        if (os != null && os.toLowerCase().contains("windows")) {
+            return "http://127.0.0.1:8899/";
         }
+        String localIp = "";
+        try {
+            localIp = GetIPAddress.getLinuxLocalIp();
+        } catch (SocketException ignore) {
+        }
+        if (localIp == null || localIp.trim().isEmpty()) {
+            localIp = "127.0.0.1";
+        }
+        return "http://" + localIp + ":8899/";
 
     }
 

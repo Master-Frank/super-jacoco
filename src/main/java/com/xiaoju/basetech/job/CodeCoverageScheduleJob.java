@@ -89,7 +89,7 @@ public class CodeCoverageScheduleJob {
     /**
      * 每五分钟从项目机器上拉取exec执行文件，计算环境的增量方法覆盖率
      */
-    @Scheduled(fixedDelay = 300_000L, initialDelay = 300_000L)
+    @Scheduled(fixedDelayString = "${cov.job.env.fixedDelay:300000}", initialDelayString = "${cov.job.env.initialDelay:300000}")
     public void calculateEnvCov() {
         List<CoverageReportEntity> resList = coverageReportDao.queryCoverByStatus(Constants.JobStatus.WAITING_PULL_EXEC.val(),
                 Constants.CoverageFrom.ENV.val(), 10);

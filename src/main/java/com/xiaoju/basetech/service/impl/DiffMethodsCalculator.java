@@ -38,7 +38,7 @@ public class DiffMethodsCalculator {
 
     public String executeDiffMethodsForEnv(String baseVersionPath, String nowVersionPath, String baseVersion, String nowVersion) {
         if (baseVersionPath.equals(nowVersionPath)) {
-            return null;
+            return "";
         }
         StringBuffer diffFile = new StringBuffer();
         long ms = System.currentTimeMillis();
@@ -53,6 +53,6 @@ public class DiffMethodsCalculator {
         }
 
         log.info("增量计算耗时：{}", (System.currentTimeMillis() - ms));
-        return null;
+        return "";
     }
 }

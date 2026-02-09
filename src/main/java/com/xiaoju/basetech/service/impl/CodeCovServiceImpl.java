@@ -379,8 +379,19 @@ public class CodeCovServiceImpl implements CodeCovService {
         if (StringUtils.isEmpty(coverageReport.getLogFile())) {
             coverageReport.setLogFile(LocalIpUtils.getTomcatBaseUrl() + "logs/" + uuid + ".log");
         }
-        String logFile = coverageReport.getLogFile().replace(LocalIpUtils.getTomcatBaseUrl() + "logs/", covPathProperties.getLogRoot());
-        Path logFilePath = StringUtils.isEmpty(logFile) ? null : Paths.get(logFile);
+        Path logFilePath = null;
+        try {
+            String logFile = coverageReport.getLogFile().replace(LocalIpUtils.getTomcatBaseUrl() + "logs/", covPathProperties.getLogRoot());
+            logFilePath = StringUtils.isEmpty(logFile) ? null : Paths.get(logFile);
+            if (logFilePath != null) {
+                Path parent = logFilePath.getParent();
+                if (parent != null) {
+                    java.nio.file.Files.createDirectories(parent);
+                }
+            }
+        } catch (Exception ignored) {
+            logFilePath = null;
+        }
 
         coverageReport.setRequestStatus(Constants.JobStatus.REPORTGENERATING.val());
         coverageReportDao.updateCoverageReportByReport(coverageReport);
@@ -545,7 +556,11 @@ public class CodeCovServiceImpl implements CodeCovService {
         List<String> cmd = new ArrayList<>();
         cmd.add("java");
         cmd.add("-jar");
-        cmd.add(covPathProperties.getJacocoCliJar());
+        if (StringUtils.isEmpty(diffFile)) {
+            cmd.add(covPathProperties.getJacocoCliJar());
+        } else {
+            cmd.add(covPathProperties.getJacocoCliDiffJar());
+        }
         cmd.add("report");
         cmd.add(execFile);
         if (modules == null || modules.isEmpty()) {
@@ -603,8 +618,20 @@ public class CodeCovServiceImpl implements CodeCovService {
         localHostRequestParam.setBasePath(basePath.toString());
         localHostRequestParam.setNowPath(nowPath.toString());
         CoverResult coverResult = pullExecFile(localHostRequestParam, diffFiles, localHostRequestParam.getSubModule());
-        //3、tomcat整合
-        //todo
+        if (coverResult != null && coverResult.getCoverStatus() == 200 && !StringUtils.isEmpty(coverResult.getReportUrl())) {
+            try {
+                Path index = Paths.get(coverResult.getReportUrl()).toAbsolutePath().normalize();
+                Path sourceDir = index.getParent();
+                if (sourceDir != null) {
+                    Path reportTargetDir = covPathProperties.reportRootPath().resolve(localHostRequestParam.getUuid());
+                    SafeFileOps.deleteRecursively(covPathProperties.reportRootPath(), reportTargetDir);
+                    SafeFileOps.copyDirectory(covPathProperties.localCovRootPath(), sourceDir, covPathProperties.reportRootPath(), reportTargetDir);
+                    coverResult.setReportUrl(LocalIpUtils.getTomcatBaseUrl() + localHostRequestParam.getUuid() + "/index.html");
+                }
+            } catch (Exception e) {
+                log.error("uuid={}复制报告异常", localHostRequestParam.getUuid(), e);
+            }
+        }
         return coverResult;
     }
 

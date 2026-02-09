@@ -11,7 +11,7 @@
 #### 1、数据库安装和初始化
 	安装mysql数据库，创建数据库后执行sql/db.sql文件中的建表SQL
 #### 2、编译打包
-	 2.1 安装JDK1.8、mavan3
+	 2.1 安装JDK17、mavan3
 	 2.2 clone代码，更改application.properties文件中的数据库和gitlab配置：
 		 spring.datasource.url=jdbc:mysql://IP:端口/数据库名?useUnicode=true&amp;characterEncoding=utf8
 		 spring.datasource.username=
@@ -41,7 +41,7 @@
 	 调用方法：POST
 	 参数（body方式传入）：{"uuid":"uuid","type":1,"gitUrl":"git@git","subModule":"","baseVersion":"master","nowVersion":"feature"，"address":"127.0.0.1","port":"8088"}
 	 返回：{"code":200,"data":true,"msg":"msg"}
-	 备注：IP和port为模块部署服务器的IP和端口，在dump jacoco.exec时使用，需要提前把org.jacoco.agent-0.8.5-runtime.jar包拷贝到服务器:/home/xxx/目录，服务启动时需要添加启动参数： -javaagent:/home/xxx/org.jacoco.agent-0.8.5-runtime.jar=includes=*,output=tcpserver,address=*,port=18513
+	 备注：IP和port为模块部署服务器的IP和端口，在dump jacoco.exec时使用，需要提前把org.jacoco.agent-0.8.14-runtime.jar包拷贝到服务器:/home/xxx/目录，服务启动时需要添加启动参数： -javaagent:/home/xxx/org.jacoco.agent-0.8.14-runtime.jar=includes=*,output=tcpserver,address=*,port=18513
 ###### 2、获取覆盖率结果
 	 URL：/cov/getEnvCoverResult
 	 调用方法：GET

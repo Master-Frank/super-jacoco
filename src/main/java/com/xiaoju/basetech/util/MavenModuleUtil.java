@@ -200,7 +200,7 @@ public class MavenModuleUtil {
                 moduleInfo.setFlag(true);
             }
         } catch (Exception e) {
-            log.error("getModuleInfo failed, pomPath={}", pomPath, e);
+            log.error("getModuleInfo failed, pomPath={}", pomFile, e);
         }
         return moduleInfo;
 

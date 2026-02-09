@@ -1,6 +1,12 @@
 package com.xiaoju.basetech.util;
 
-import jdk.internal.org.objectweb.asm.*;
+import org.objectweb.asm.AnnotationVisitor;
+import org.objectweb.asm.Attribute;
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassVisitor;
+import org.objectweb.asm.FieldVisitor;
+import org.objectweb.asm.MethodVisitor;
+import org.objectweb.asm.Opcodes;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -32,7 +38,7 @@ public class ClassMethodsReader {
         public ArrayList<String> methodInfoList = new ArrayList<>();
 
         public ClassPrinter() {
-            super(Opcodes.ASM4);
+            super(Opcodes.ASM9);
         }
 
         public void visit(int version, int access, String name,

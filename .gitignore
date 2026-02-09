@@ -1,5 +1,16 @@
-/target/
+target/
 !.mvn/wrapper/maven-wrapper.jar
+
+### Reports / Logs ###
+report/
+log/
+*.log
+*.log.*
+
+### JaCoCo runtime artifacts ###
+*.exec
+sample-tested-service/jacoco.exec
+sample-tested-service/jacocoreport/
 
 ### STS ###
 .apt_generated
@@ -15,6 +26,14 @@
 *.iws
 *.iml
 *.ipr
+
+### VS Code ###
+.vscode/
+
+### OS files ###
+.DS_Store
+Thumbs.db
+Desktop.ini
 
 ### NetBeans ###
 /nbproject/private/

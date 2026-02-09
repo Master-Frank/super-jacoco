@@ -27,6 +27,9 @@ public class CovPathProperties {
     @Value("${cov.paths.jacocoCliJar:${user.home}/org.jacoco.cli-1.0.2-SNAPSHOT-nodeps.jar}")
     private String jacocoCliJar;
 
+    @Value("${cov.paths.jacocoCliDiffJar:${user.home}/org.jacoco.cli-1.0.2-SNAPSHOT-nodeps.jar}")
+    private String jacocoCliDiffJar;
+
     @Value("${cov.paths.localCovRoot:${user.home}/cover/}")
     private String localCovRoot;
 
@@ -50,4 +53,3 @@ public class CovPathProperties {
         return Paths.get(localCovRoot).toAbsolutePath().normalize();
     }
 }
-
