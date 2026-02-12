@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.attribute.BasicFileAttributes;
 
 public class SafeFileOps {
@@ -23,13 +24,29 @@ public class SafeFileOps {
         Files.walkFileTree(normalizedTarget, new SimpleFileVisitor<Path>() {
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                Files.deleteIfExists(file);
+                try {
+                    Files.deleteIfExists(file);
+                } catch (AccessDeniedException e) {
+                    try {
+                        Files.setAttribute(file, "dos:readonly", false);
+                    } catch (Exception ignored) {
+                    }
+                    Files.deleteIfExists(file);
+                }
                 return FileVisitResult.CONTINUE;
             }
 
             @Override
             public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                Files.deleteIfExists(dir);
+                try {
+                    Files.deleteIfExists(dir);
+                } catch (AccessDeniedException e) {
+                    try {
+                        Files.setAttribute(dir, "dos:readonly", false);
+                    } catch (Exception ignored) {
+                    }
+                    Files.deleteIfExists(dir);
+                }
                 return FileVisitResult.CONTINUE;
             }
         });

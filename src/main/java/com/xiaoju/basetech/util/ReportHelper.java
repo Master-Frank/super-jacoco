@@ -152,7 +152,7 @@ public class ReportHelper {
                     "            <plugin>\n" +
                     "                <groupId>org.jacoco</groupId>\n" +
                     "                <artifactId>jacoco-maven-plugin</artifactId>\n" +
-                    "                <version>1.0.1-SNAPSHOT</version>\n" +
+                    "                <version>0.8.14</version>\n" +
                     "                <executions>\n" +
                     "                    <execution>\n" +
                     "                        <id>report-aggregate</id>\n" +

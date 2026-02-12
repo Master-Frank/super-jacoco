@@ -36,14 +36,17 @@ public class DiffMethodsCalculator {
         log.info("uuid={} 增量计算耗时：{}", coverageReport.getUuid(), (System.currentTimeMillis() - s));
     }
 
-    public String executeDiffMethodsForEnv(String baseVersionPath, String nowVersionPath, String baseVersion, String nowVersion) {
+    public String executeDiffMethodsForEnv(String repoPath, String baseVersionPath, String nowVersionPath, String baseVersion, String nowVersion) {
         if (baseVersionPath.equals(nowVersionPath)) {
             return "";
         }
         StringBuffer diffFile = new StringBuffer();
         long ms = System.currentTimeMillis();
-        HashMap map = JDiffFiles.diffMethodsListForEnv(baseVersionPath, nowVersionPath, baseVersion, nowVersion);
-        if (map != null && !map.isEmpty()) {
+        HashMap map = JDiffFiles.diffMethodsListForEnv(repoPath, baseVersionPath, nowVersionPath, baseVersion, nowVersion);
+        if (map == null) {
+            return null;
+        }
+        if (!map.isEmpty()) {
             Iterator<Map.Entry<String, String>> iterator = map.entrySet().iterator();
             while (iterator.hasNext()) {
                 Map.Entry<String, String> entry = iterator.next();

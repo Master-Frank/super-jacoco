@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -37,6 +38,20 @@ public class UnitTester {
         return "mvn";
     }
 
+    private static Path resolveMavenWorkDir(CoverageReportEntity coverageReport) {
+        return Paths.get(coverageReport.getNowLocalPath()).toAbsolutePath().normalize();
+    }
+
+    private static void applySubModuleArgs(List<String> cmd, CoverageReportEntity coverageReport) {
+        String subModule = coverageReport.getSubModule();
+        if (StringUtils.isEmpty(subModule)) {
+            return;
+        }
+        cmd.add("-pl");
+        cmd.add(subModule);
+        cmd.add("-am");
+    }
+
     public void executeUnitTest(CoverageReportEntity coverageReport) {
         long startTime = System.currentTimeMillis();
         String logFile = coverageReport.getLogFile().replace(LocalIpUtils.getTomcatBaseUrl() + "logs/", covPathProperties.getLogRoot());
@@ -46,23 +61,21 @@ public class UnitTester {
         if (!StringUtils.isEmpty(coverageReport.getEnvType())) {
             cmd.add("-P" + coverageReport.getEnvType());
         }
+        applySubModuleArgs(cmd, coverageReport);
         cmd.add("clean");
         cmd.add("-Dmaven.test.skip=false");
-        cmd.add("org.jacoco:jacoco-maven-plugin:1.0.2-SNAPSHOT:prepare-agent");
+        cmd.add("org.jacoco:jacoco-maven-plugin:0.8.14:prepare-agent");
         cmd.add("compile");
         cmd.add("test-compile");
         cmd.add("org.apache.maven.plugins:maven-surefire-plugin:2.22.1:test");
         cmd.add("org.apache.maven.plugins:maven-jar-plugin:2.4:jar");
-        cmd.add("org.jacoco:jacoco-maven-plugin:1.0.2-SNAPSHOT:report");
         cmd.add("-Dmaven.test.failure.ignore=true");
         cmd.add("-Dfile.encoding=UTF-8");
-        if (!StringUtils.isEmpty(coverageReport.getDiffMethod())) {
-            cmd.add("-Djacoco.diffFile=" + coverageReport.getDiffMethod());
-        }
         // 超时时间设置为一小时,
         int exitCode;
         try {
-            exitCode = CmdExecutor.executeCmd(cmd, Paths.get(coverageReport.getNowLocalPath()), UNITTEST_TIMEOUT, logFilePath);
+            Path workDir = resolveMavenWorkDir(coverageReport);
+            exitCode = CmdExecutor.executeCmd(cmd, workDir, UNITTEST_TIMEOUT, logFilePath);
             log.info("单元测试执行结果exitCode={} uuid={}", exitCode, coverageReport.getUuid());
             if (exitCode == 0) {
                 log.info("执行单元测试成功...");

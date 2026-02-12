@@ -24,11 +24,8 @@ public class CovPathProperties {
     @Value("${cov.paths.jacocoResourceRoot:${user.home}/resource/jacoco-resources}")
     private String jacocoResourceRoot;
 
-    @Value("${cov.paths.jacocoCliJar:${user.home}/org.jacoco.cli-1.0.2-SNAPSHOT-nodeps.jar}")
+    @Value("${cov.paths.jacocoCliJar:${user.home}/org.jacoco.cli-0.8.14-nodeps.jar}")
     private String jacocoCliJar;
-
-    @Value("${cov.paths.jacocoCliDiffJar:${user.home}/org.jacoco.cli-1.0.2-SNAPSHOT-nodeps.jar}")
-    private String jacocoCliDiffJar;
 
     @Value("${cov.paths.localCovRoot:${user.home}/cover/}")
     private String localCovRoot;

@@ -61,18 +61,22 @@ public class CodeCloneExecutor {
 
             Path localRepoPath = resolveLocalRepoPath(gitUrl);
             if (localRepoPath != null && Files.exists(localRepoPath) && Files.isDirectory(localRepoPath)) {
-                if (coverageReport.getType() == Constants.ReportType.DIFF.val() && !GitHandler.isValidGitRepository(localRepoPath.toString())) {
+                if (coverageReport.getType() == Constants.ReportType.FULL.val()) {
+                    Path normalizedLocalRepo = localRepoPath.toAbsolutePath().normalize();
+                    Path normalizedNowTarget = Paths.get(nowLocalPath).toAbsolutePath().normalize();
+                    SafeFileOps.copyDirectory(normalizedLocalRepo, normalizedLocalRepo, covPathProperties.codeRootPath(), normalizedNowTarget);
+                    log.info("uuid {}完成下载代码...", uuid);
+                    coverageReport.setRequestStatus(Constants.JobStatus.CLONE_DONE.val());
+                    return;
+                }
+                if (!GitHandler.isValidGitRepository(localRepoPath.toString())) {
                     coverageReport.setErrMsg("gitUrl为本地路径时仅支持全量(type=1)，增量(type=2)需要git仓库");
                     coverageReport.setRequestStatus(Constants.JobStatus.CLONE_FAIL.val());
                     return;
                 }
             }
 
-            if (localRepoPath != null && Files.exists(localRepoPath) && Files.isDirectory(localRepoPath) && !GitHandler.isValidGitRepository(localRepoPath.toString())) {
-                Path normalizedLocalRepo = localRepoPath.toAbsolutePath().normalize();
-                Path normalizedNowTarget = Paths.get(nowLocalPath).toAbsolutePath().normalize();
-                SafeFileOps.copyDirectory(normalizedLocalRepo, normalizedLocalRepo, covPathProperties.codeRootPath(), normalizedNowTarget);
-            } else {
+            {
                 gitHandler.cloneRepository(gitUrl, nowLocalPath, coverageReport.getNowVersion());
                 if (coverageReport.getType() == Constants.ReportType.DIFF.val()) {
                     String baseLocalPath = codeRoot + uuid + "/" + coverageReport.getBaseVersion().replace("/", "_");

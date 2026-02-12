@@ -13,6 +13,7 @@ import java.io.File;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.Ref;
@@ -37,7 +38,7 @@ public class GitHandler {
     @Value(value = "${gitlab.password}")
     private  String password;
 
-    public Git cloneRepository(String gitUrl, String codePath, String commitId) throws GitAPIException {
+    public void cloneRepository(String gitUrl, String codePath, String commitId) throws GitAPIException {
         CloneCommand cloneCommand = Git.cloneRepository()
                 .setURI(gitUrl)
                 .setDirectory(new File(codePath))
@@ -47,11 +48,11 @@ public class GitHandler {
             cloneCommand.setCredentialsProvider(new UsernamePasswordCredentialsProvider(username, password));
         }
 
-        Git git = cloneCommand.call();
-        if (!StringUtils.isEmpty(commitId)) {
-            checkoutBranch(git, commitId);
+        try (Git git = cloneCommand.call()) {
+            if (!StringUtils.isEmpty(commitId)) {
+                checkoutBranch(git, commitId);
+            }
         }
-        return git;
     }
 
     private static boolean shouldUseCredentialsProvider(String gitUrl) {
@@ -84,17 +85,51 @@ public class GitHandler {
 
     public static boolean isValidGitRepository(String codePath) {
         Path folder = Paths.get(codePath);
-        if (Files.exists(folder) && Files.isDirectory(folder)) {
-            // If it has been at least initialized
-            if (RepositoryCache.FileKey.isGitRepository(folder.toFile(), FS.DETECTED)) {
-                // we are assuming that the clone worked at that time, caller should call hasAtLeastOneReference
-                return true;
-            } else {
-                return false;
-            }
-        } else {
+        if (!Files.exists(folder) || !Files.isDirectory(folder)) {
             return false;
         }
+
+        if (folder.getFileName() != null && ".git".equals(folder.getFileName().toString())) {
+            return RepositoryCache.FileKey.isGitRepository(folder.toFile(), FS.DETECTED);
+        }
+
+        Path head = folder.resolve("HEAD");
+        Path objects = folder.resolve("objects");
+        Path refs = folder.resolve("refs");
+        if (Files.isRegularFile(head) && Files.isDirectory(objects) && Files.isDirectory(refs)) {
+            return RepositoryCache.FileKey.isGitRepository(folder.toFile(), FS.DETECTED);
+        }
+
+        Path dotGit = folder.resolve(".git");
+        if (Files.isDirectory(dotGit) && RepositoryCache.FileKey.isGitRepository(dotGit.toFile(), FS.DETECTED)) {
+            return true;
+        }
+
+        if (Files.isRegularFile(dotGit)) {
+            try {
+                List<String> lines = Files.readAllLines(dotGit);
+                for (String line : lines) {
+                    if (line == null) {
+                        continue;
+                    }
+                    String trimmed = line.trim();
+                    if (!trimmed.startsWith("gitdir:")) {
+                        continue;
+                    }
+                    String rel = trimmed.substring("gitdir:".length()).trim();
+                    if (rel.isEmpty()) {
+                        continue;
+                    }
+                    Path resolved = folder.resolve(rel).toAbsolutePath().normalize();
+                    if (RepositoryCache.FileKey.isGitRepository(resolved.toFile(), FS.DETECTED)) {
+                        return true;
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
+        return false;
     }
 
 

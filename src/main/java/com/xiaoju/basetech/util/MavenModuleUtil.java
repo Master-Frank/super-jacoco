@@ -7,6 +7,9 @@ package com.xiaoju.basetech.util;
  */
 
 import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.regex.Matcher;
@@ -27,96 +30,22 @@ public class MavenModuleUtil {
 
     public void addMavenModule(CoverageReportEntity coverageReport) {
         try {
-            String pomPath = coverageReport.getNowLocalPath() + "/pom.xml";
+            Path workDir = resolveMavenWorkDir(coverageReport);
+            String pomPath = workDir.resolve("pom.xml").toString();
             File pomFile = new File(pomPath);
             if (!pomFile.exists()) {
                 coverageReport.setRequestStatus(Constants.JobStatus.FAILADDMODULE.val());
                 return;
             }
             // 添加lombok配置
-            File lombokConfig = new File(coverageReport.getNowLocalPath() + "/lombok.config");
+            File lombokConfig = workDir.resolve("lombok.config").toFile();
             FileWriter lombokWriter = new FileWriter(lombokConfig);
             lombokWriter.write("lombok.addLombokGeneratedAnnotation = true");
             lombokWriter.flush();
             lombokWriter.close();
-            ArrayList<String> list = getChildPomsPath(pomPath);
-            if (list.size() <= 1) {
-                coverageReport.setReportFile(coverageReport.getNowLocalPath() + "/target/site/jacoco/index.html");
-                coverageReport.setRequestStatus(Constants.JobStatus.ADDMODULE_DONE.val());
-                return;
-            }
-            StringBuilder denpBuilder = new StringBuilder();
-            ModuleInfo moduleInfo = getModuleInfo(pomPath);
-            String str = dependencyStr(pomPath, moduleInfo, denpBuilder).toString();
-            if (StringUtils.isEmpty(str)) {
-                coverageReport.setRequestStatus(Constants.JobStatus.ADDMODULE_DONE.val());
-                coverageReport.setReportFile(coverageReport.getNowLocalPath() + "/target/site/jacoco/index.html");
-                return;
-            }
-            //在父pom中写入jacocomodule
-            BufferedReader parentbReader = new BufferedReader(new FileReader(pomFile));
-            StringBuilder sb = new StringBuilder();
-            String s = "";
-            while ((s = parentbReader.readLine()) != null) {
-                sb.append(s.trim() + "\n");
-
-            }
-            String pomStr = sb.toString();
-            pomStr = pomStr.replace("<modules>", "<modules>\n<module>jacocomodule</module>");
-            FileWriter writer = new FileWriter(pomFile);
-            writer.write(pomStr);
-            writer.flush();
-            writer.close();
-            StringBuilder builder = new StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
-                    "<project xmlns=\"http://maven.apache.org/POM/4.0.0\"\n" +
-                    "         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n" +
-                    "         xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd\">\n");
-            builder.append("<modelVersion>4.0.0</modelVersion>\n");
-            builder.append("<parent>\n");
-            builder.append("<artifactId>" + moduleInfo.getArtifactId() + "</artifactId>\n");
-            builder.append("<groupId>" + moduleInfo.getGroupId() + "</groupId>\n");
-            builder.append("<version>" + moduleInfo.getVersion() + "</version>\n");
-            builder.append("</parent>\n");
-            builder.append("<groupId>" + moduleInfo.getGroupId() + "</groupId>\n");
-            builder.append("<artifactId>jacocomodule</artifactId>\n");
-            builder.append("<version>" + moduleInfo.getVersion() + "</version>\n");
-            builder.append("<dependencies>\n");
-            builder.append(str);
-            builder.append("\n</dependencies>\n" +
-                    "<build>\n" +
-                    "        <plugins>\n" +
-                    "            <plugin>\n" +
-                    "                <groupId>org.jacoco</groupId>\n" +
-                    "                <artifactId>jacoco-maven-plugin</artifactId>\n" +
-                    "                <version>1.0.2-SNAPSHOT</version>\n" +
-                    "                <executions>\n" +
-                    "                    <execution>\n" +
-                    "                        <id>report-aggregate</id>\n" +
-                    "                        <phase>compile</phase>\n" +
-                    "                        <goals>\n" +
-                    "                            <goal>report-aggregate</goal>\n" +
-                    "                        </goals>\n" +
-                    "                    </execution>\n" +
-                    "                </executions>\n" +
-                    "            </plugin>\n" +
-                    "        </plugins>\n" +
-                    "    </build>\n" +
-                    "</project>");
-            File coverageModule = new File(coverageReport.getNowLocalPath() + "/jacocomodule");
-            if (!coverageModule.exists()) {
-                coverageModule.mkdir();
-                File coveragePomFile = new File(coverageReport.getNowLocalPath() + "/jacocomodule/pom.xml");
-                if (!coveragePomFile.exists()) {
-                    coveragePomFile.createNewFile();
-                    FileWriter cwriter = new FileWriter(coveragePomFile);
-                    cwriter.write(builder.toString());
-                    cwriter.flush();
-                    cwriter.close();
-                    coverageReport.setReportFile(coverageReport.getNowLocalPath() + "/jacocomodule/target/site/jacoco-aggregate/index.html");
-                    coverageReport.setRequestStatus(Constants.JobStatus.ADDMODULE_DONE.val());
-                    return;
-                }
-            }
+            replaceArgLine(pomPath);
+            coverageReport.setRequestStatus(Constants.JobStatus.ADDMODULE_DONE.val());
+            return;
         } catch (Exception e) {
             log.error("添加集成模块执行异常:{}", coverageReport.getUuid(), e);
             coverageReport.setErrMsg("添加集成模块执行异常:" + e.getMessage());
@@ -124,28 +53,128 @@ public class MavenModuleUtil {
         }
     }
 
+    private static Path resolveMavenWorkDir(CoverageReportEntity coverageReport) {
+        Path root = Paths.get(coverageReport.getNowLocalPath()).toAbsolutePath().normalize();
+        String subModule = coverageReport.getSubModule();
+        if (StringUtils.isEmpty(subModule)) {
+            return root;
+        }
+        Path candidate = root.resolve(subModule).toAbsolutePath().normalize();
+        if (!candidate.startsWith(root)) {
+            return root;
+        }
+        if (Files.exists(candidate.resolve("pom.xml"))) {
+            return candidate;
+        }
+        return root;
+    }
+
     public static void replaceArgLine(String pomPath) {
         File pomFile = new File(pomPath);
-        BufferedReader parentbReader = null;
         try {
-            parentbReader = new BufferedReader(new FileReader(pomFile));
             StringBuilder sb = new StringBuilder();
-            String s = "";
-            while ((s = parentbReader.readLine()) != null) {
-                sb.append(s.trim() + "\n");
-
+            try (BufferedReader parentbReader = new BufferedReader(new FileReader(pomFile))) {
+                String s;
+                while ((s = parentbReader.readLine()) != null) {
+                    sb.append(s).append("\n");
+                }
             }
+
             String pomStr = sb.toString();
-            if (pomStr.contains("<argLine>")) {
-                FileWriter writer = new FileWriter(pomFile);
-                writer.write(pomStr.replaceAll("<argLine>", "<argLine>@{argLine} "));
-                writer.flush();
-                writer.close();
+            String updated = pomStr;
+
+            if (updated.contains("<argLine>") && !updated.contains("<argLine>@{argLine}")) {
+                updated = updated.replace("<argLine>", "<argLine>@{argLine} ");
+            }
+
+            updated = ensureSurefireArgLine(updated);
+
+            if (!updated.equals(pomStr)) {
+                try (FileWriter writer = new FileWriter(pomFile)) {
+                    writer.write(updated);
+                    writer.flush();
+                }
             }
         } catch (IOException e) {
             log.error("replaceArgLineError", e);
         }
 
+    }
+
+    private static String ensureSurefireArgLine(String pomStr) {
+        if (StringUtils.isEmpty(pomStr)) {
+            return pomStr;
+        }
+
+        String updated = pomStr;
+
+        Pattern pluginPattern = Pattern.compile("(?s)<plugin>.*?<artifactId>maven-surefire-plugin</artifactId>.*?</plugin>");
+        Matcher matcher = pluginPattern.matcher(updated);
+        if (matcher.find()) {
+            String pluginBlock = matcher.group();
+            String newPluginBlock = pluginBlock;
+
+            if (pluginBlock.contains("<argLine>")) {
+                if (!pluginBlock.contains("<argLine>@{argLine}")) {
+                    newPluginBlock = newPluginBlock.replace("<argLine>", "<argLine>@{argLine} ");
+                }
+            } else if (pluginBlock.contains("<configuration>")) {
+                newPluginBlock = newPluginBlock.replace(
+                        "<configuration>",
+                        "<configuration>\n<argLine>@{argLine}</argLine>\n"
+                );
+            } else {
+                newPluginBlock = newPluginBlock.replace(
+                        "</plugin>",
+                        "<configuration>\n<argLine>@{argLine}</argLine>\n</configuration>\n</plugin>"
+                );
+            }
+
+            if (!newPluginBlock.equals(pluginBlock)) {
+                updated = updated.substring(0, matcher.start()) + newPluginBlock + updated.substring(matcher.end());
+            }
+            return updated;
+        }
+
+        String pluginToInsert = "<plugin>\n"
+                + "<groupId>org.apache.maven.plugins</groupId>\n"
+                + "<artifactId>maven-surefire-plugin</artifactId>\n"
+                + "<version>2.22.1</version>\n"
+                + "<configuration>\n"
+                + "<argLine>@{argLine}</argLine>\n"
+                + "</configuration>\n"
+                + "</plugin>\n";
+
+        int pluginMgmtIdx = updated.indexOf("<pluginManagement>");
+        if (pluginMgmtIdx >= 0) {
+            int pluginsIdx = updated.indexOf("<plugins>", pluginMgmtIdx);
+            if (pluginsIdx >= 0) {
+                int insertPos = pluginsIdx + "<plugins>".length();
+                return updated.substring(0, insertPos) + "\n" + pluginToInsert + updated.substring(insertPos);
+            }
+        }
+
+        int buildIdx = updated.indexOf("<build>");
+        if (buildIdx >= 0) {
+            int pluginsIdx = updated.indexOf("<plugins>", buildIdx);
+            if (pluginsIdx >= 0) {
+                int insertPos = pluginsIdx + "<plugins>".length();
+                return updated.substring(0, insertPos) + "\n" + pluginToInsert + updated.substring(insertPos);
+            }
+            int buildEndIdx = updated.indexOf("</build>", buildIdx);
+            if (buildEndIdx >= 0) {
+                String pluginsBlock = "<plugins>\n" + pluginToInsert + "</plugins>\n";
+                return updated.substring(0, buildEndIdx) + pluginsBlock + updated.substring(buildEndIdx);
+            }
+        }
+
+        int projectEndIdx = updated.lastIndexOf("</project>");
+        if (projectEndIdx >= 0) {
+            String buildBlock = "<build>\n<plugins>\n" + pluginToInsert + "</plugins>\n</build>\n";
+            return updated.substring(0, projectEndIdx) + buildBlock + updated.substring(projectEndIdx);
+        }
+
+        return updated;
     }
 
     //获取一个moduleGAV等基本信息

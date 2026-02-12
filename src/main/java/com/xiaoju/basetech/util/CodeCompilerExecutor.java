@@ -33,6 +33,20 @@ public class CodeCompilerExecutor {
         return "mvn";
     }
 
+    private static Path resolveMavenWorkDir(CoverageReportEntity coverageReport) {
+        return Paths.get(coverageReport.getNowLocalPath()).toAbsolutePath().normalize();
+    }
+
+    private static void applySubModuleArgs(List<String> cmd, CoverageReportEntity coverageReport) {
+        String subModule = coverageReport.getSubModule();
+        if (StringUtils.isEmpty(subModule)) {
+            return;
+        }
+        cmd.add("-pl");
+        cmd.add(subModule);
+        cmd.add("-am");
+    }
+
     public void compileCode(CoverageReportEntity coverageReport) {
         Path logFilePath = null;
         try {
@@ -50,10 +64,12 @@ public class CodeCompilerExecutor {
         if (!StringUtils.isEmpty(coverageReport.getEnvType())) {
             cmd.add("-P" + coverageReport.getEnvType());
         }
+        applySubModuleArgs(cmd, coverageReport);
         cmd.add("clean");
         cmd.add("compile");
         try {
-            int exitCode = CmdExecutor.executeCmd(cmd, Paths.get(coverageReport.getNowLocalPath()), 600000L, logFilePath);
+            Path workDir = resolveMavenWorkDir(coverageReport);
+            int exitCode = CmdExecutor.executeCmd(cmd, workDir, 600000L, logFilePath);
             if (exitCode != 0) {
                 coverageReport.setRequestStatus(Constants.JobStatus.COMPILE_FAIL.val());
                 coverageReport.setErrMsg("编译代码出错");

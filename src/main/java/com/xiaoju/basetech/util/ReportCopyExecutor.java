@@ -26,6 +26,15 @@ public class ReportCopyExecutor {
             File reportFile = new File(coverageReport.getReportFile());
             Path sourceDir = reportFile.getParentFile().toPath();
             Path targetDir = covPathProperties.reportRootPath().resolve(coverageReport.getUuid());
+
+            Path normalizedTargetDir = targetDir.toAbsolutePath().normalize();
+            Path normalizedSourceDir = sourceDir.toAbsolutePath().normalize();
+            if (normalizedSourceDir.startsWith(normalizedTargetDir)) {
+                coverageReport.setReportUrl(LocalIpUtils.getTomcatBaseUrl() + coverageReport.getUuid() + "/index.html");
+                coverageReport.setRequestStatus(Constants.JobStatus.COPYREPORT_DONE.val());
+                return;
+            }
+
             SafeFileOps.copyDirectory(covPathProperties.codeRootPath(), sourceDir, covPathProperties.reportRootPath(), targetDir);
             coverageReport.setReportUrl(LocalIpUtils.getTomcatBaseUrl() + coverageReport.getUuid() + "/index.html");
             coverageReport.setRequestStatus(Constants.JobStatus.COPYREPORT_DONE.val());
