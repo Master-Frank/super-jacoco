@@ -43,6 +43,4 @@ Desktop.ini
 /nbdist/
 /.nb-gradle/
 
-# Trae local workspace
-.trae/
 .codex/
