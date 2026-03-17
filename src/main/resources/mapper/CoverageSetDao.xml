@@ -1,0 +1,56 @@
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xiaoju.basetech.dao.CoverageSetDao">
+
+    <resultMap id="coverageSetEntity" type="com.xiaoju.basetech.entity.CoverageSetEntity">
+        <id column="coverage_set_id" property="coverageSetId"/>
+        <result column="campaign_id" property="campaignId"/>
+        <result column="git_url" property="gitUrl"/>
+        <result column="repo_local_path" property="repoLocalPath"/>
+        <result column="branch" property="branch"/>
+        <result column="type" property="type"/>
+        <result column="from_type" property="fromType"/>
+        <result column="scope_key" property="scopeKey"/>
+        <result column="current_commit_id" property="currentCommitId"/>
+        <result column="current_snapshot_key" property="currentSnapshotKey"/>
+        <result column="line_coverage_rate" property="lineCoverageRate"/>
+        <result column="branch_coverage_rate" property="branchCoverageRate"/>
+        <result column="status" property="status"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.xiaoju.basetech.entity.CoverageSetEntity">
+        INSERT INTO coverage_set(
+        coverage_set_id, campaign_id, git_url, repo_local_path, branch, type, from_type, scope_key,
+        current_commit_id, current_snapshot_key, line_coverage_rate, branch_coverage_rate, status
+        ) VALUES (
+        #{item.coverageSetId}, #{item.campaignId}, #{item.gitUrl}, #{item.repoLocalPath}, #{item.branch}, #{item.type}, #{item.fromType}, #{item.scopeKey},
+        #{item.currentCommitId}, #{item.currentSnapshotKey}, #{item.lineCoverageRate}, #{item.branchCoverageRate}, #{item.status}
+        )
+    </insert>
+
+    <select id="selectById" resultMap="coverageSetEntity">
+        SELECT * FROM coverage_set WHERE coverage_set_id = #{coverageSetId} LIMIT 1
+    </select>
+
+    <select id="selectByScopeKey" resultMap="coverageSetEntity">
+        SELECT * FROM coverage_set WHERE scope_key = #{scopeKey} LIMIT 1
+    </select>
+
+    <update id="updateCurrentSnapshot">
+        UPDATE coverage_set
+        SET current_commit_id = #{currentCommitId},
+            current_snapshot_key = #{currentSnapshotKey},
+            updated_at = NOW()
+        WHERE coverage_set_id = #{coverageSetId}
+    </update>
+
+    <update id="updateCoverageRate">
+        UPDATE coverage_set
+        SET line_coverage_rate = #{lineCoverageRate},
+            branch_coverage_rate = #{branchCoverageRate},
+            updated_at = NOW()
+        WHERE coverage_set_id = #{coverageSetId}
+    </update>
+</mapper>

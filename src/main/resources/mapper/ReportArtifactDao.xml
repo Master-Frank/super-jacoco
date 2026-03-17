@@ -1,0 +1,29 @@
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xiaoju.basetech.dao.ReportArtifactDao">
+
+    <resultMap id="reportArtifactEntity" type="com.xiaoju.basetech.entity.ReportArtifactEntity">
+        <id column="id" property="id"/>
+        <result column="coverage_set_id" property="coverageSetId"/>
+        <result column="run_id" property="runId"/>
+        <result column="commit_id" property="commitId"/>
+        <result column="artifact_type" property="artifactType"/>
+        <result column="object_key" property="objectKey"/>
+        <result column="metadata" property="metadata"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.xiaoju.basetech.entity.ReportArtifactEntity">
+        INSERT INTO report_artifact(
+            coverage_set_id, run_id, commit_id, artifact_type, object_key, metadata
+        ) VALUES (
+            #{item.coverageSetId}, #{item.runId}, #{item.commitId}, #{item.artifactType}, #{item.objectKey}, #{item.metadata}
+        )
+    </insert>
+
+    <select id="queryByRunId" resultMap="reportArtifactEntity">
+        SELECT * FROM report_artifact
+        WHERE run_id = #{runId}
+        ORDER BY id ASC
+    </select>
+</mapper>

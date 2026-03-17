@@ -1,0 +1,69 @@
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xiaoju.basetech.dao.CoverageNodeStatsDao">
+
+    <resultMap id="coverageNodeStatsEntity" type="com.xiaoju.basetech.entity.CoverageNodeStatsEntity">
+        <id column="id" property="id"/>
+        <result column="coverage_set_id" property="coverageSetId"/>
+        <result column="commit_id" property="commitId"/>
+        <result column="node_type" property="nodeType"/>
+        <result column="node_key" property="nodeKey"/>
+        <result column="parent_key" property="parentKey"/>
+        <result column="display_name" property="displayName"/>
+        <result column="source_file" property="sourceFile"/>
+        <result column="line_missed" property="lineMissed"/>
+        <result column="line_covered" property="lineCovered"/>
+        <result column="branch_missed" property="branchMissed"/>
+        <result column="branch_covered" property="branchCovered"/>
+        <result column="instruction_missed" property="instructionMissed"/>
+        <result column="instruction_covered" property="instructionCovered"/>
+        <result column="complexity_missed" property="complexityMissed"/>
+        <result column="complexity_covered" property="complexityCovered"/>
+        <result column="method_missed" property="methodMissed"/>
+        <result column="method_covered" property="methodCovered"/>
+        <result column="class_missed" property="classMissed"/>
+        <result column="class_covered" property="classCovered"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <delete id="deleteBySetId">
+        DELETE FROM coverage_node_stats WHERE coverage_set_id = #{coverageSetId}
+    </delete>
+
+    <insert id="batchInsert">
+        INSERT INTO coverage_node_stats(
+            coverage_set_id, commit_id, node_type, node_key, parent_key, display_name, source_file,
+            line_missed, line_covered, branch_missed, branch_covered,
+            instruction_missed, instruction_covered, complexity_missed, complexity_covered,
+            method_missed, method_covered, class_missed, class_covered
+        ) VALUES
+        <foreach collection="items" item="item" separator=",">
+            (
+            #{item.coverageSetId}, #{item.commitId}, #{item.nodeType}, #{item.nodeKey}, #{item.parentKey}, #{item.displayName}, #{item.sourceFile},
+            #{item.lineMissed}, #{item.lineCovered}, #{item.branchMissed}, #{item.branchCovered},
+            #{item.instructionMissed}, #{item.instructionCovered}, #{item.complexityMissed}, #{item.complexityCovered},
+            #{item.methodMissed}, #{item.methodCovered}, #{item.classMissed}, #{item.classCovered}
+            )
+        </foreach>
+    </insert>
+
+    <select id="queryBySetAndType" resultMap="coverageNodeStatsEntity">
+        SELECT * FROM coverage_node_stats
+        WHERE coverage_set_id = #{coverageSetId}
+          AND node_type = #{nodeType}
+        <if test="parentKey != null and parentKey != ''">
+            AND parent_key = #{parentKey}
+        </if>
+        ORDER BY line_missed + line_covered ASC, node_key ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countBySetAndType" resultType="java.lang.Integer">
+        SELECT COUNT(1) FROM coverage_node_stats
+        WHERE coverage_set_id = #{coverageSetId}
+          AND node_type = #{nodeType}
+        <if test="parentKey != null and parentKey != ''">
+            AND parent_key = #{parentKey}
+        </if>
+    </select>
+</mapper>

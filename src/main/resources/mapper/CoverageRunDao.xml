@@ -1,0 +1,60 @@
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xiaoju.basetech.dao.CoverageRunDao">
+
+    <resultMap id="coverageRunEntity" type="com.xiaoju.basetech.entity.CoverageRunEntity">
+        <id column="run_id" property="runId"/>
+        <result column="coverage_set_id" property="coverageSetId"/>
+        <result column="commit_id" property="commitId"/>
+        <result column="commit_message" property="commitMessage"/>
+        <result column="exec_object_key" property="execObjectKey"/>
+        <result column="xml_object_key" property="xmlObjectKey"/>
+        <result column="line_coverage_rate" property="lineCoverageRate"/>
+        <result column="branch_coverage_rate" property="branchCoverageRate"/>
+        <result column="status" property="status"/>
+        <result column="error_message" property="errorMessage"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.xiaoju.basetech.entity.CoverageRunEntity">
+        INSERT INTO coverage_run(
+            run_id, coverage_set_id, commit_id, commit_message, exec_object_key, xml_object_key,
+            line_coverage_rate, branch_coverage_rate, status, error_message
+        ) VALUES (
+            #{item.runId}, #{item.coverageSetId}, #{item.commitId}, #{item.commitMessage}, #{item.execObjectKey}, #{item.xmlObjectKey},
+            #{item.lineCoverageRate}, #{item.branchCoverageRate}, #{item.status}, #{item.errorMessage}
+        )
+    </insert>
+
+    <select id="selectById" resultMap="coverageRunEntity">
+        SELECT * FROM coverage_run WHERE run_id = #{runId} LIMIT 1
+    </select>
+
+    <select id="selectBySetAndCommit" resultMap="coverageRunEntity">
+        SELECT * FROM coverage_run
+        WHERE coverage_set_id = #{coverageSetId}
+          AND commit_id = #{commitId}
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="selectLatestBySetId" resultMap="coverageRunEntity">
+        SELECT * FROM coverage_run
+        WHERE coverage_set_id = #{coverageSetId}
+        ORDER BY created_at DESC
+        LIMIT 1
+    </select>
+
+    <select id="countBySetId" resultType="java.lang.Integer">
+        SELECT COUNT(1) FROM coverage_run
+        WHERE coverage_set_id = #{coverageSetId}
+    </select>
+
+    <update id="updateStatus">
+        UPDATE coverage_run
+        SET status = #{status},
+            error_message = #{errorMessage},
+            updated_at = NOW()
+        WHERE run_id = #{runId}
+    </update>
+</mapper>

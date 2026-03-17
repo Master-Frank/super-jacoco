@@ -6,7 +6,8 @@ import org.springframework.stereotype.Service;
 public class CalculatorService {
 
     public int add(int a, int b) {
-        return Math.addExact(a, b);
+        int result = Math.addExact(a, b);
+        return result;
     }
 
     public int sub(int a, int b) {

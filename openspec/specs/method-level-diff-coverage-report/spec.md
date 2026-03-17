@@ -2,9 +2,7 @@
 
 ## Purpose
 Define requirements for generating method-level incremental (diff-based) coverage reports using in-process JaCoCo APIs.
-
 ## Requirements
-
 ### Requirement: 仅使用 JaCoCo 0.8.14 生成增量报告
 系统 MUST 在进程内使用 JaCoCo 0.8.14 的 core/report API 生成 HTML 与 XML 报告产物，并 MUST 不依赖 `org.jacoco.cli-1.0.2-SNAPSHOT-nodeps.jar` 及其扩展参数。
 
@@ -54,11 +52,19 @@ Define requirements for generating method-level incremental (diff-based) coverag
 - **THEN** 报告汇总与单文件汇总的 line/branch 统计 MUST 不包含未纳入方法对应的行与分支
 
 ### Requirement: 报告产物路径与多模块合并保持兼容
-系统 SHALL 维持现有报告输出目录结构与访问 URL 形式；多模块场景 SHALL 继续输出子模块报告并进行合并产出。
+系统 SHALL 在保持现有报告输出目录结构与访问 URL 形式兼容的前提下，持续输出可被累积覆盖流程消费的 XML 报告产物，并在多模块场景继续产出合并结果。
+
+#### Scenario: 报告兼容且可复用
+- **WHEN** 生成方法级增量覆盖报告
+- **THEN** 原有报告访问路径保持不变，且同批产物可直接供快照生成器解析
 
 #### Scenario: 多模块输出结构不变
 - **WHEN** 请求指定 subModule 或模块列表
 - **THEN** 系统在每个模块目录生成 HTML，并将合并后的入口页输出为 `index.html`
+
+#### Scenario: 产物缺失触发失败
+- **WHEN** 需要消费 XML 但产物不存在或不可读
+- **THEN** 系统将对应 run 标记为失败并记录明确错误原因
 
 ### Requirement: 失败行为可定位且不产生误导结果
 系统 MUST 在 diffSpec 解析失败、方法匹配规则异常、或报告生成失败时将任务置为失败并记录可定位的错误信息，且 MUST 不返回成功状态的报告链接。
@@ -66,3 +72,4 @@ Define requirements for generating method-level incremental (diff-based) coverag
 #### Scenario: diffSpec 不可解析
 - **WHEN** diffSpec 为空但报告类型要求增量，或 diffSpec 格式错误
 - **THEN** 系统标记任务失败并返回明确错误信息
+
