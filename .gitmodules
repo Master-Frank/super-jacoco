@@ -1,0 +1,3 @@
+[submodule "sample-tested-service"]
+	path = sample-tested-service
+	url = https://github.com/Master-Frank/sample-tested-service.git
