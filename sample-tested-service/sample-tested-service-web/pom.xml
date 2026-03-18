@@ -3,7 +3,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>com.example</groupId>
+        <groupId>com.frank.superjacoco</groupId>
         <artifactId>sample-tested-service</artifactId>
         <version>1.0.0-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
@@ -14,7 +14,7 @@
 
     <dependencies>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.frank.superjacoco</groupId>
             <artifactId>sample-tested-service-core</artifactId>
             <version>${project.version}</version>
         </dependency>

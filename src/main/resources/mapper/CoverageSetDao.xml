@@ -1,8 +1,8 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.xiaoju.basetech.dao.CoverageSetDao">
+<mapper namespace="com.frank.superjacoco.dao.CoverageSetDao">
 
-    <resultMap id="coverageSetEntity" type="com.xiaoju.basetech.entity.CoverageSetEntity">
+    <resultMap id="coverageSetEntity" type="com.frank.superjacoco.entity.CoverageSetEntity">
         <id column="coverage_set_id" property="coverageSetId"/>
         <result column="campaign_id" property="campaignId"/>
         <result column="git_url" property="gitUrl"/>
@@ -20,7 +20,7 @@
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
 
-    <insert id="insert" parameterType="com.xiaoju.basetech.entity.CoverageSetEntity">
+    <insert id="insert" parameterType="com.frank.superjacoco.entity.CoverageSetEntity">
         INSERT INTO coverage_set(
         coverage_set_id, campaign_id, git_url, repo_local_path, branch, type, from_type, scope_key,
         current_commit_id, current_snapshot_key, line_coverage_rate, branch_coverage_rate, status

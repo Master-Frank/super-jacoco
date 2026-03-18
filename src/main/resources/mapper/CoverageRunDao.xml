@@ -1,8 +1,8 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.xiaoju.basetech.dao.CoverageRunDao">
+<mapper namespace="com.frank.superjacoco.dao.CoverageRunDao">
 
-    <resultMap id="coverageRunEntity" type="com.xiaoju.basetech.entity.CoverageRunEntity">
+    <resultMap id="coverageRunEntity" type="com.frank.superjacoco.entity.CoverageRunEntity">
         <id column="run_id" property="runId"/>
         <result column="coverage_set_id" property="coverageSetId"/>
         <result column="commit_id" property="commitId"/>
@@ -17,7 +17,7 @@
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
 
-    <insert id="insert" parameterType="com.xiaoju.basetech.entity.CoverageRunEntity">
+    <insert id="insert" parameterType="com.frank.superjacoco.entity.CoverageRunEntity">
         INSERT INTO coverage_run(
             run_id, coverage_set_id, commit_id, commit_message, exec_object_key, xml_object_key,
             line_coverage_rate, branch_coverage_rate, status, error_message

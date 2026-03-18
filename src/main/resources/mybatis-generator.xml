@@ -27,7 +27,7 @@
         </javaTypeResolver>
 
         <!-- generate Model -->
-        <javaModelGenerator targetPackage="com.xiaoju.basetech.entity"
+        <javaModelGenerator targetPackage="com.frank.superjacoco.entity"
                             targetProject="${entity.target.dir}">
             <property name="enableSubPackages" value="true"/>
             <property name="trimStrings" value="true"/>
@@ -42,7 +42,7 @@
 
         <!-- 自动生成mapper接口, 可以是 ANNOTATEDMAPPER(注解), XMLMAPPER(xml), MIXEDMAPPER(不知道) -->
         <javaClientGenerator type="XMLMAPPER"
-                             targetPackage="com.xiaoju.basetech.mapper"
+                             targetPackage="com.frank.superjacoco.mapper"
                              targetProject="${entity.target.dir}">
             <property name="enableSubPackages" value="true"/>
         </javaClientGenerator>

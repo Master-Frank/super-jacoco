@@ -1,8 +1,8 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.xiaoju.basetech.dao.CoverageNodeStatsDao">
+<mapper namespace="com.frank.superjacoco.dao.CoverageNodeStatsDao">
 
-    <resultMap id="coverageNodeStatsEntity" type="com.xiaoju.basetech.entity.CoverageNodeStatsEntity">
+    <resultMap id="coverageNodeStatsEntity" type="com.frank.superjacoco.entity.CoverageNodeStatsEntity">
         <id column="id" property="id"/>
         <result column="coverage_set_id" property="coverageSetId"/>
         <result column="commit_id" property="commitId"/>

@@ -4,7 +4,7 @@
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>%d %p (%file:%line\)- %m%n</pattern>
-            <charset>UTF-8</charset>
+            <charset>${LOG_CONSOLE_CHARSET:-GBK}</charset>
         </encoder>
     </appender>
     <appender name="baselog"
@@ -28,7 +28,7 @@
         <appender-ref ref="STDOUT"/>
         <appender-ref ref="baselog"/>
     </root>
-    <logger name="com.xiaoju" level="DEBUG">
+    <logger name="com.frank" level="DEBUG">
         <appender-ref ref="baselog"/>
     </logger>
 </configuration>
