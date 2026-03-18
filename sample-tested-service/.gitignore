@@ -1,8 +1,0 @@
-**/target/
-jacoco.exec
-jacocoreport/
-.classpath
-.project
-.settings/
-.idea/
-*.iml
